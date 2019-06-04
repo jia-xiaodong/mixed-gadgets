@@ -592,11 +592,11 @@ class EditWord(ModalDialog):
         entry.value = tk.Text(frm, highlightbackground='gray', highlightthickness=1, width=20, height=1)
         entry.value.pack(side=tk.LEFT, fill=tk.BOTH, expand=tk.YES)
         entry.value.bind('<Return>', self.handle_return)
-        entry.value.bind('<Control-Key-l>', EditWord.select_all)
         tk.Button(frm, text='-1', command=lambda: self.delete_entry(frm), takefocus=0).pack(side=tk.LEFT)
         tk.Button(frm, text='+1 Above', command=lambda: self.add_entry_above(frm)).pack(side=tk.RIGHT)
         # focus to combo box
         combo.focus_set()
+        self.enhance_combo(combo)
 
     def validate(self):
         for entry in self.entries:
@@ -647,10 +647,160 @@ class EditWord(ModalDialog):
         line, _ = text.index(tk.END).split('.')
         text.config(height=int(line))
 
+    def enhance_combo(self, w):
+        if not isinstance(w, ttk.Combobox):
+            return
+        w.bind('<Mod1-a>', EntryOps.select_all)
+        w.bind('<Mod1-A>', EntryOps.select_all)
+        w.bind('<Mod1-Left>', EntryOps.jump_to_start)
+        w.bind('<Mod1-Right>', EntryOps.jump_to_end)
+        w.bind('<Mod1-C>', EntryOps.copy)
+        w.bind('<Mod1-X>', EntryOps.cut)
+        w.bind('<Mod1-V>', EntryOps.paste)
+
+
+class EntryOps:
     @staticmethod
     def select_all(evt):
-        text = evt.widget
-        text.tag_add(tk.SEL, '1.0', tk.END)
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.select_range(0, tk.END)
+
+    @staticmethod
+    def jump_to_start(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.icursor(0)
+
+    @staticmethod
+    def jump_to_end(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.icursor(tk.END)
+
+    @staticmethod
+    def copy(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.event_generate('<<Copy>>')
+
+    @staticmethod
+    def cut(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.event_generate('<<Cut>>')
+
+    @staticmethod
+    def paste(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.event_generate('<<Paste>>')
+
+
+class TextOps:
+    @staticmethod
+    def select_all(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Text):
+            return
+        w.tag_add(tk.SEL, '1.0', tk.END)
+
+    @staticmethod
+    def jump_to_start(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Text):
+            return
+        curr = w.index(tk.INSERT)
+        start = '%s linestart' % curr
+        sel = w.tag_ranges(tk.SEL)
+        if evt.state & 0x0001:  # shift pressed
+            end = sel[1] if len(sel) else curr
+            w.tag_add(tk.SEL, start, end)
+        elif len(sel) > 0:
+            w.tag_remove(tk.SEL, tk.SEL_FIRST, tk.SEL_LAST)
+        #
+        w.mark_set(tk.INSERT, start)  # move cursor to line start
+        w.see(start)                  # scroll to line start
+        return 'break'                # avoid the extra 'key handler'
+
+    @staticmethod
+    def jump_to_end(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Text):
+            return
+        curr = w.index(tk.INSERT)
+        end = '%s lineend' % curr
+        sel = w.tag_ranges(tk.SEL)
+        if evt.state & 0x0001:  # shift pressed
+            start = sel[0] if len(sel) else curr
+            w.tag_add(tk.SEL, start, end)
+        elif len(sel) > 0:
+            w.tag_remove(tk.SEL, tk.SEL_FIRST, tk.SEL_LAST)
+        #
+        w.mark_set(tk.INSERT, end)  # move cursor to line start
+        w.see(end)                  # scroll to line start
+        return 'break'              # avoid the extra 'key handler'
+
+    @staticmethod
+    def copy(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Text):
+            return
+        w.event_generate('<<Copy>>')
+
+    @staticmethod
+    def cut(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Text):
+            return
+        w.event_generate('<<Cut>>')
+
+    @staticmethod
+    def paste(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Text):
+            return
+        w.event_generate('<<Paste>>')
+    
+    @staticmethod
+    def jump_top(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Text):
+            return
+        curr = w.index(tk.INSERT)
+        sel = w.tag_ranges(tk.SEL)
+        if evt.state & 0x0001:  # shift pressed
+            end = sel[1] if len(sel) else curr
+            w.tag_add(tk.SEL, '1.0', end)
+        elif len(sel) > 0:
+            w.tag_remove(tk.SEL, tk.SEL_FIRST, tk.SEL_LAST)
+        #
+        w.mark_set(tk.INSERT, '1.0')  # move cursor to top
+        w.see('1.0')                  # scroll to top
+        return 'break'                # avoid the extra 'key handler'
+
+    @staticmethod
+    def jump_bottom(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Text):
+            return
+        curr = w.index(tk.INSERT)
+        sel = w.tag_ranges(tk.SEL)
+        if evt.state & 0x0001:  # shift pressed
+            start = sel[0] if len(sel) else curr
+            w.tag_add(tk.SEL, start, tk.END)
+        elif len(sel) > 0:
+            w.tag_remove(tk.SEL, tk.SEL_FIRST, tk.SEL_LAST)
+        #
+        w.mark_set(tk.INSERT, tk.END)  # move cursor to bottom
+        w.see(tk.END)                  # scroll to bottom
+        return 'break'                 # avoid the extra 'key handler'
 
 
 class ReciteWord(ModalDialog):
@@ -977,6 +1127,7 @@ class MainWindow(tk.Tk):
             pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
         tk.Button(self, text="Today's Words", command=self.view_today).pack(**options)
         self.word_source = None
+        self.enhance_functions()
 
     def specify_source(self):
         # 1. close old database
@@ -1013,6 +1164,29 @@ class MainWindow(tk.Tk):
     def update_word_count(self):
         n = self.word_source.review_num(self.turn.get())
         self.count.set(n)
+
+    def enhance_functions(self):
+        #
+        self.bind_class('Text', '<Mod1-a>', TextOps.select_all)
+        self.bind_class('Text', '<Mod1-A>', TextOps.select_all)
+        self.bind_class('Text', '<Mod1-Left>', TextOps.jump_to_start)
+        self.bind_class('Text', '<Mod1-Right>', TextOps.jump_to_end)
+        self.bind_class('Text', '<Mod1-Up>', TextOps.jump_top)
+        self.bind_class('Text', '<Mod1-Down>', TextOps.jump_bottom)
+        self.bind_class('Text', '<Mod1-C>', TextOps.copy)
+        self.bind_class('Text', '<Mod1-X>', TextOps.cut)
+        self.bind_class('Text', '<Mod1-V>', TextOps.paste)
+        # TODO: why doesn't work?
+        '''
+        self.bind_class('Entry', '<Mod1-a>', EntryOps.select_all)
+        self.bind_class('Entry', '<Mod1-A>', EntryOps.select_all)
+        self.bind_class('Entry', '<Mod1-Left>', EntryOps.jump_to_start)
+        self.bind_class('Combobox', '<Mod1-Right>', EntryOps.jump_to_end)
+        self.bind_class('Combobox', '<Mod1-C>', EntryOps.copy)
+        self.bind_class('Combobox', '<Mod1-X>', EntryOps.cut)
+        self.bind_class('Combobox', '<Mod1-V>', EntryOps.paste)
+        '''
+
 
 if __name__ == '__main__':
     MainWindow().mainloop()

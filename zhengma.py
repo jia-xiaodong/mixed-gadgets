@@ -73,6 +73,50 @@ class BusyIndicator(tk.Toplevel):
         self.minsize(w, h)
 
 
+class EntryOps:
+    @staticmethod
+    def select_all(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.select_range(0, tk.END)
+
+    @staticmethod
+    def jump_to_start(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.icursor(0)
+
+    @staticmethod
+    def jump_to_end(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.icursor(tk.END)
+
+    @staticmethod
+    def copy(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.event_generate('<<Copy>>')
+
+    @staticmethod
+    def cut(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.event_generate('<<Cut>>')
+
+    @staticmethod
+    def paste(evt):
+        w = evt.widget
+        if not isinstance(w, tk.Entry):
+            return
+        w.event_generate('<<Paste>>')
+
+
 class MainWnd(tk.Tk):
     """
     A utility to help edit zheng-ma file of OpenVanilla.
@@ -85,7 +129,9 @@ class MainWnd(tk.Tk):
         frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES, padx=5, pady=5)
         tk.Label(frm, text='Keyword:').pack(side=tk.LEFT)
         self._keyword = tk.StringVar()
-        tk.Entry(frm, textvariable=self._keyword).pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
+        e = tk.Entry(frm, textvariable=self._keyword)
+        e.pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
+        e.bind('<Return>', lambda evt: self.on_query_())
         self._btn = tk.Button(frm, text='Query', command=self.on_query_)
         self._btn.pack(side=tk.LEFT)
         #
@@ -113,6 +159,7 @@ class MainWnd(tk.Tk):
         self._database = ZhengMa()
         #
         self.bind('<Escape>', lambda evt: self.destroy())
+        self.enhance_functions()
 
     def on_query_(self):
         if not self._database.valid:
@@ -141,6 +188,15 @@ class MainWnd(tk.Tk):
         if new_word is '':
             return
         self._database.insert_new(new_code, new_word)
+
+    def enhance_functions(self):
+        self.bind_class('Entry', '<Mod1-a>', EntryOps.select_all)
+        self.bind_class('Entry', '<Mod1-A>', EntryOps.select_all)
+        self.bind_class('Entry', '<Mod1-Left>', EntryOps.jump_to_start)
+        self.bind_class('Entry', '<Mod1-Right>', EntryOps.jump_to_end)
+        self.bind_class('Entry', '<Mod1-C>', EntryOps.copy)
+        self.bind_class('Entry', '<Mod1-X>', EntryOps.cut)
+        self.bind_class('Entry', '<Mod1-V>', EntryOps.paste)
 
 if __name__ == '__main__':
     MainWnd().mainloop()

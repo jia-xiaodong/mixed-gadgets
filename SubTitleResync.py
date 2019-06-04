@@ -296,9 +296,9 @@ class SubtitleFile:
     def __init__(self, filename, lines):
         self.filepath = filename
         formatter = None
-        if filename.endswith('srt'):
+        if filename.lower().endswith('srt'):
             formatter = SrtFormatter()
-        elif filename.endswith('ass'):
+        elif filename.lower().endswith('ass'):
             formatter = AssFormatter()
         formatter.parse(lines)
         self.formatter = formatter
