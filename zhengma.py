@@ -126,7 +126,8 @@ class MainWnd(tk.Tk):
         self.title('OpenVanilla Zheng-Ma Sprite')
         #
         frm = tk.Frame(self)
-        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES, padx=5, pady=5)
+        # fill=X, expand=NO: fill horizontal space even when resizing window
+        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.NO, padx=5, pady=5)
         tk.Label(frm, text='Keyword:').pack(side=tk.LEFT)
         self._keyword = tk.StringVar()
         e = tk.Entry(frm, textvariable=self._keyword)
@@ -136,7 +137,7 @@ class MainWnd(tk.Tk):
         self._btn.pack(side=tk.LEFT)
         #
         frm = tk.Frame(self)
-        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES)
+        frm.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES)
         tree = ttk.Treeview(frm, show='headings', columns=('Code', 'Word'))
         tree.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.BOTH, expand=tk.YES)
         sclb = tk.Scrollbar(frm, orient=tk.VERTICAL, command=tree.yview)
@@ -146,7 +147,7 @@ class MainWnd(tk.Tk):
         tree.heading('#2', text='字')
         #
         frm = tk.LabelFrame(self, text='Insert New Word')
-        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES, padx=5, pady=5)
+        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.NO, padx=5, pady=5)
         self._new_code = tk.StringVar()
         self._new_word = tk.StringVar()
         tk.Entry(frm, textvariable=self._new_code)\
@@ -170,7 +171,7 @@ class MainWnd(tk.Tk):
             return
         busy = BusyIndicator(self)
         # delete old
-        map(lambda i: self._words.delete(i), self._words.get_children(''))
+        self._words.delete(*self._words.get_children())
         # insert new
         for i in self._database.query(keyword):
             self._words.insert('', tk.END, values=i.split(' ', 2))
@@ -183,11 +184,18 @@ class MainWnd(tk.Tk):
     def insert_new_word_(self):
         new_code = self._new_code.get().strip(' ')
         new_word = self._new_word.get().strip(' ')
-        if not new_word.isalpha():
+        if not new_code.encode('utf8').isalpha():
+            return
+        if len(new_code) > 5:
             return
         if new_word is '':
             return
         self._database.insert_new(new_code, new_word)
+        # as a feedback, insert new word to QUERY window
+        children = self._words.get_children('')
+        if len(children) == 1 and self._words.item(children[0], 'values')[0] == '<Empty>':
+            self._words.delete(*children)
+        self._words.insert('', tk.END, values=(new_code, new_word))
 
     def enhance_functions(self):
         self.bind_class('Entry', '<Mod1-a>', EntryOps.select_all)
