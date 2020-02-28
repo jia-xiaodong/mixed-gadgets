@@ -10,6 +10,7 @@ import urllib
 import Queue
 import threading
 from hashlib import md5
+import time
 
 
 def url_join(base, tail):
@@ -25,18 +26,88 @@ def url_domain(url):
     return url[:start]
 
 
+class RepeatTimer:
+    """
+    Mimic the behavior (interface) of threading.Timer.
+    """
+    def __init__(self, interval, function):
+        self.interval = interval
+        self.function = function
+        self.thread = threading.Timer(self.interval, self.handle_function)
+
+    def handle_function(self):
+        self.function()
+        self.thread = threading.Timer(self.interval, self.handle_function)
+        self.thread.start()
+
+    def start(self):
+        self.thread.start()
+
+    def cancel(self):
+        self.thread.cancel()
+
+
+class DownloadStats(object):
+    def __init__(self, refresh_interval):
+        self._speed = 0
+        self._refresh_interval = refresh_interval
+
+    def init_for_new_download(self, value):
+        self._downloaded_size = 0    # bytes
+        self._downloaded_blocks = 0  # number of .ts files
+        self._total_blocks = value
+        self._time_consumed = 0      # seconds
+        self.reset(time.time())
+
+    def reset(self, now):
+        """
+        Speed is measured (updated) in a fixed interval.
+        So reset below variables for next interval.
+        """
+        self._delta_size = 0
+        self._start_time = now  # time.time(), float
+
+    def update(self, size):
+        """
+        Update when every blocks is downloaded.
+        """
+        self._downloaded_size += size
+        self._downloaded_blocks += 1
+        self._delta_size += size
+        now = time.time()
+        dt = now - self._start_time  # dt is float
+        self._time_consumed += dt
+        if dt >= self._refresh_interval:
+            self._speed = self._delta_size / dt
+            self.reset(now)
+
+    @property
+    def downloaded_size(self):
+        return self._downloaded_size
+
+    @property
+    def speed(self):
+        return self._speed
+
+    @property
+    def remaining_time(self):
+        seconds_per_block = self._time_consumed / self._downloaded_blocks
+        return seconds_per_block * (self._total_blocks - self._downloaded_blocks)
+
+
 class Downloader(threading.Thread):
     def __init__(self, url, dst):
         threading.Thread.__init__(self)
         self._url = url  # source URL
         self._dst = dst  # destination folder
-        self._downloaded = True
+        self._size = 0
 
     def run(self):
         try:
             ifo = urllib.urlopen(self._url)
             content = ifo.read()
             ifo.close()
+            self._size = len(content)
 
             dst = os.path.join(self._dst, os.path.basename(self._url))
             if Downloader.file_exists(dst, content):
@@ -45,12 +116,9 @@ class Downloader(threading.Thread):
                 ofo.write(content)
         except Exception as e:
             print('%s: %s' % (self._url, e))
-            self._downloaded = False
 
-    def is_downloaded(self):
-        if self.isAlive():
-            return False
-        return self._downloaded
+    def downloaded_size(self):
+        return self._size
 
     @staticmethod
     def file_exists(filename, content):
@@ -106,7 +174,7 @@ class Main(tk.Frame):
         # row 1 -- step 2
         frame = tk.Frame(group, padx=5, pady=5)
         frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
-        self._segments = tk.Listbox(frame, height=8)
+        self._segments = tk.Listbox(frame, height=8, selectmode=tk.EXTENDED)
         self._segments.pack(side=tk.LEFT, expand=tk.YES, fill=tk.BOTH)
         yscroll = tk.Scrollbar(frame, orient=tk.VERTICAL, command=self._segments.yview)
         yscroll.pack(side=tk.RIGHT, expand=tk.NO, fill=tk.Y)
@@ -114,6 +182,7 @@ class Main(tk.Frame):
         xscroll = tk.Scrollbar(group, orient=tk.HORIZONTAL, command=self._segments.xview)
         xscroll.pack(side=tk.TOP, expand=tk.YES, fill=tk.X)
         self._segments['xscrollcommand'] = xscroll.set
+        self._segments.bind('<Key-Delete>', self.delete_segments)
         # row 2 -- step 2
         frame = tk.Frame(group)
         frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
@@ -124,9 +193,12 @@ class Main(tk.Frame):
         self._btn = tk.Button(frame, text='Download', command=self.download_segments)
         self._btn.pack(side=tk.LEFT)
         # row 3 -- step 2
+        frame = tk.Frame(group)
+        frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
+        tk.Label(frame, text='Progress: ').pack(side=tk.LEFT)
         self._progress = tk.IntVar()
-        self._progressbar = ttk.Progressbar(group, mode='determinate', variable=self._progress)
-        self._progressbar.pack(side=tk.TOP, expand=tk.YES, fill=tk.X)
+        self._progressbar = ttk.Progressbar(frame, mode='determinate', variable=self._progress)
+        self._progressbar.pack(side=tk.LEFT, expand=tk.YES, fill=tk.X)
         # step 3
         group = tk.LabelFrame(self, text='Step 3: Merge')
         group.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
@@ -137,6 +209,8 @@ class Main(tk.Frame):
         tk.Entry(frame, textvariable=self._output).pack(side=tk.LEFT, expand=tk.YES, fill=tk.X)
         tk.Button(frame, text='Browse', command=self.save_as).pack(side=tk.LEFT)
         tk.Button(frame, text='Merge', command=self.merge_cache).pack(side=tk.LEFT)
+        #
+        self.init_stats_tip()
 
     def browse_tmp(self):
         adir = tkFileDialog.askdirectory()
@@ -220,7 +294,6 @@ class Main(tk.Frame):
         try:
             self.clear_queue()
             content = self._segments.get(0, tk.END)
-            #content = list(content)
             for i in content:
                 self._job_queue.put(i)
             #
@@ -246,6 +319,8 @@ class Main(tk.Frame):
         """
         cache = self._tmp_dir.get()
         num = self._job_queue.qsize()
+        self._stats.init_for_new_download(num)
+        self.enable_stats_tip()
         #
         progress = 0
         jobs = []
@@ -253,7 +328,8 @@ class Main(tk.Frame):
             for i in jobs[:]:
                 if i.isAlive():
                     continue
-                if i.is_downloaded():
+                sz = i.downloaded_size()
+                if sz > 0:
                     # remove it from Listbox
                     content = self._segments.get(0, tk.END)
                     index = content.index(i._url)
@@ -262,6 +338,7 @@ class Main(tk.Frame):
                 # report progress
                 progress += 1
                 self._msg_queue.put(progress)
+                self._stats.update(sz)
             # if user changes settings of concurrent jobs
             slots = max(self._job_num.get() - len(jobs), 0)
             added = min(slots, self._job_queue.qsize())
@@ -271,8 +348,12 @@ class Main(tk.Frame):
                 jobs.append(job)
                 job.start()
         self._running = False
+        self.disable_stats_tip()
 
     def listen_for_progress(self):
+        """
+        Update UI for downloading progress
+        """
         try:
             progress = self._msg_queue.get(False)  # non-block
             self._progress.set(progress)
@@ -304,6 +385,67 @@ class Main(tk.Frame):
         ofo.close()
         tkMessageBox.showinfo('m3u8 downloader', 'Merge is done.')
 
+    def init_stats_tip(self):
+        self._stats = DownloadStats(3)  # refresh data in every 3 seconds
+        self._tip_text = tk.StringVar()
+
+    def enable_stats_tip(self):
+        self._tip_refresher = RepeatTimer(3.0, self.refresh_tip)
+        self._tip_refresher.start()
+        self._progressbar.bind('<Enter>', self.show_tip)
+        self._progressbar.bind('<Leave>', self.hide_tip)
+
+    def disable_stats_tip(self):
+        self._progressbar.unbind('<Enter>')
+        self._progressbar.unbind('<Leave>')
+        self._tip_refresher.cancel()
+
+    def realtime_tip(self):
+        downloaded = self._stats.downloaded_size / 1024  # kilo-bytes
+        if downloaded > 1024:
+            downloaded = '%dMB' % (downloaded / 1024)    # mega-bytes
+        else:
+            downloaded = '%dKB' % downloaded
+        speed = self._stats.speed / 1024  # KBps
+        if speed > 1024:
+            speed = '%.2fMBps' % (speed / 1024)  # MBps
+        else:
+            speed = '%.2fKBps' % speed
+        remaining = self._stats.remaining_time
+        if remaining < 60:  # seconds
+            remaining = '%d seconds' % remaining
+        elif remaining < 60 * 60:
+            remaining = '%.2f minutes' % (remaining / 60.0)  # minutes
+        else:
+            remaining = '%.2f hours' % (remaining / 60.0 * 60.0)
+        return 'Downloaded: %s\nSpeed: %s\nRemaining: %s' % (downloaded, speed, remaining)
+
+    def refresh_tip(self):
+        self._tip_text.set(self.realtime_tip())
+
+    def show_tip(self, evt=None):
+        self._tip_wnd = tk.Toplevel(self._progressbar)
+        self._tip_wnd.wm_overrideredirect(True)  # remove window title bar
+        label = tk.Label(self._tip_wnd, textvariable=self._tip_text, justify=tk.LEFT)
+        label.pack(ipadx=5)
+        x, y = self._progressbar.winfo_rootx(), self._progressbar.winfo_rooty()
+        w, h = label.winfo_reqwidth(), label.winfo_reqheight()
+        sw, sh = label.winfo_screenwidth(), label.winfo_screenheight()
+        offset = 20
+        if x + w + offset > sw:
+            x -= w + offset*2
+        if y + h + offset > sh:
+            y -= h + offset*2
+        self._tip_wnd.wm_geometry("+%d+%d" % (x+offset, y+offset))
+
+    def hide_tip(self, evt=None):
+        self._tip_wnd.destroy()
+
+    def delete_segments(self, evt):
+        selected = self._segments.curselection()
+        minimal = min(selected)
+        maximal = max(selected)
+        self._segments.delete(minimal, maximal)
 
 if __name__ == '__main__':
     root = tk.Tk(className='ts merger')
