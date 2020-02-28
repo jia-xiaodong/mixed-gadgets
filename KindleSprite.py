@@ -15,6 +15,7 @@ import ttk
 import tkFileDialog, tkMessageBox
 import PIL.Image as Image
 import PIL.ImageTk as ImageTk
+import PIL.ImageFilter as ImageFilter
 import os, shutil
 import Queue, threading
 
@@ -23,6 +24,11 @@ class PhotoCrop(tk.Frame):
     """
     Kindle PW2 supports JPG screen-saver image (758x1024).
     """
+    FORMATS = ('Black & White', 'GrayScale', '256-Color Palette', '8-bit RGB', '8-bit RGBA')
+    FORMAT_ID = ['1', 'L', 'P', 'RGB', 'RGBA']
+    EXTENSIONS = ('.bmp', '.gif', '.jpg', '.ppm', '.png')
+    EXTENSION_ID = ['BMP', 'GIF', 'JPEG', 'PPM', 'PNG']
+
     def __init__(self, master, *args, **kwargs):
         self.image_src = None
         self.image_dst = None
@@ -45,6 +51,10 @@ class PhotoCrop(tk.Frame):
         self.mouse_pos = tk.StringVar()
         tk.Label(frm, textvariable=self.mouse_pos).pack(side=tk.LEFT)
         tk.Button(frm, text='Save Clip', command=self.save_clip).pack(side=tk.LEFT)
+        self.export_format = tk.StringVar(value=PhotoCrop.FORMATS[1])  # GrayScale is default
+        tk.OptionMenu(frm, self.export_format, *PhotoCrop.FORMATS).pack(side=tk.LEFT)
+        self.extension = tk.StringVar(value=PhotoCrop.EXTENSIONS[2])
+        tk.OptionMenu(frm, self.extension, *PhotoCrop.EXTENSIONS).pack(side=tk.LEFT)
         frm = tk.LabelFrame(self, text='Outline Frame')
         frm.pack(side=tk.TOP, fill=tk.X, expand=tk.NO, padx=5, pady=5)
         tk.Button(frm, text='Draw', command=self.draw_rect).pack(side=tk.LEFT)
@@ -96,9 +106,17 @@ class PhotoCrop(tk.Frame):
             return
         try:
             self.canvas.delete(tk.ALL)
-            self.image_src = Image.open(filename).convert('L')
+            self.image_src = Image.open(filename)
             self.image_size.set('size: %s X %s' % (self.image_src.size[0], self.image_src.size[1]))
             self.auto_resize()
+            # format
+            format = PhotoCrop.EXTENSION_ID.index(self.image_src.format)
+            if format > -1:
+                self.extension.set(PhotoCrop.EXTENSIONS[format])
+            # mode
+            mode = PhotoCrop.FORMAT_ID.index(self.image_src.mode)
+            if mode > -1:
+                self.export_format.set(PhotoCrop.FORMATS[mode])
         except Exception as e:
             print(e)
         else:
@@ -180,18 +198,24 @@ class PhotoCrop(tk.Frame):
                 h = self.image_src.height
             if y+h > self.image_src.height:
                 h = self.image_src.height - y
-            filename = tkFileDialog.asksaveasfilename(initialfile=os.path.basename(self.filename), defaultextension='.jpg')
+
+            heading, extension = os.path.splitext(self.filename)
+            if len(self.extension.get()) > 0:
+                extension = self.extension.get()
+            filename = tkFileDialog.asksaveasfilename(initialfile=os.path.basename(heading), defaultextension=extension)
             if len(filename) == 0:
                 return
             clip = self.image_src.crop((x, y, x+w, y+h))
-            clip.save(filename, 'JPEG', bits=8)
+            mode = PhotoCrop.FORMATS.index(self.export_format.get())
+            mode = PhotoCrop.FORMAT_ID[mode]
+            if clip.mode != mode:
+                clip = clip.convert(mode)
+            clip.save(filename)
             clip.close()
         except Exception as e:
-            pass
+            print(e)
 
     def validate_xy(self, s):
-        if s == '':
-            return False
         return all(map(lambda i: i.isdigit(), s))
 
     def resize_outline(self, ratio):
@@ -310,7 +334,7 @@ class SdrClean(tk.Frame):
         self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
         fm = tk.Frame(self)
         fm.pack(side=tk.LEFT, fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
-        tk.Button(fm, text='Specify Folder', command=self.specify_folder).\
+        tk.Button(fm, text='Specify Document  Folder', command=self.specify_folder).\
             pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES)
         tk.Button(fm, text='Exempt One Item', command=self.exempt_item).\
             pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES)
@@ -536,8 +560,23 @@ def unit_test_tabbar():
     root.mainloop()
 
 
+def tmp():
+    dir = '/Users/xiaodong/Desktop/kou'
+    os.chdir(dir)
+    all_images = [i for i in os.listdir(dir) if i.endswith('.jpg')]
+    if not os.path.exists('output'):
+        os.mkdir('output')
+
+    box = (167, 0, 1167, 750)
+    for i in all_images:
+        im = Image.open(i)
+        im2 = im.crop(box)
+        im2.save('output/' + i)
+        im.close()
+
 if __name__ == "__main__":
     #unit_test(PhotoCrop, ' Photo Cropper')
     #unit_test(SdrClean, ' SDR Folder Cleaner')
     #unit_test(PhotoGrey, ' Photo Greyscaler')
     unit_test_tabbar()
+    #tmp()
