@@ -91,6 +91,8 @@ class DownloadStats(object):
 
     @property
     def remaining_time(self):
+        if self._downloaded_blocks == 0:
+            return 0
         seconds_per_block = self._time_consumed / self._downloaded_blocks
         return seconds_per_block * (self._total_blocks - self._downloaded_blocks)
 
@@ -426,7 +428,7 @@ class Main(tk.Frame):
     def show_tip(self, evt=None):
         self._tip_wnd = tk.Toplevel(self._progressbar)
         self._tip_wnd.wm_overrideredirect(True)  # remove window title bar
-        label = tk.Label(self._tip_wnd, textvariable=self._tip_text, justify=tk.LEFT)
+        label = tk.Label(self._tip_wnd, textvariable=self._tip_text, justify=tk.LEFT, bg='yellow')
         label.pack(ipadx=5)
         x, y = self._progressbar.winfo_rootx(), self._progressbar.winfo_rooty()
         w, h = label.winfo_reqwidth(), label.winfo_reqheight()
