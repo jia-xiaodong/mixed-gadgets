@@ -6,7 +6,7 @@ import tkFileDialog
 import tkMessageBox
 import ttk
 import os
-import urllib
+import urllib2
 import Queue
 import threading
 from hashlib import md5
@@ -23,6 +23,11 @@ def url_join(base, tail):
 def url_domain(url):
     start = url.find('//')
     start = url.find('/', start+2)
+    return url[:start]
+
+
+def url_directory(url):
+    start = url.rfind('/')
     return url[:start]
 
 
@@ -106,7 +111,7 @@ class Downloader(threading.Thread):
 
     def run(self):
         try:
-            ifo = urllib.urlopen(self._url)
+            ifo = urllib2.urlopen(self._url, timeout=3)
             content = ifo.read()
             ifo.close()
             self._size = len(content)
@@ -236,26 +241,17 @@ class Main(tk.Frame):
         if len(cache_dir) == 0:
             return
         try:
-            ifo = urllib.urlopen(index_url)
+            # download
+            ifo = urllib2.urlopen(index_url, timeout=3)
             content = ifo.read()
             ifo.close()
+            # write to local disk
             dst = os.path.join(cache_dir, Main.INDEX_FILE)
             ofo = open(dst, 'w')
             ofo.write(content)
             ofo.close()
-            # UI auto-completion
-            url_base = url_domain(index_url)
-            list = []
-            for line in content.split('\n'):
-                if line.startswith('#'):
-                    continue
-                line = line.strip()
-                if len(line) == 0:
-                    continue
-                line = url_join(url_base, line)
-                list.append(line)
-            self._segments.delete(0, tk.END)
-            self._segments.insert(tk.END, *list)
+            # fill in the listbox
+            self.fill_in_listbox(index_url, content.split('\n'))
         except Exception as e:
             print(e)
 
@@ -268,20 +264,10 @@ class Main(tk.Frame):
         cache_dir = cache_dir.strip()
         if len(cache_dir) == 0:
             return
-        url_base = url_domain(index_url)
+        #
         index_file = os.path.join(cache_dir, Main.INDEX_FILE)
-        ifo = open(index_file, 'r')
-        list = []
-        for line in ifo.readlines():
-            if line.startswith('#'):
-                continue
-            line = line.strip()
-            if len(line) == 0:
-                continue
-            line = url_join(url_base, line)
-            list.append(line)
-        self._segments.delete(0, tk.END)
-        self._segments.insert(tk.END, *list)
+        with open(index_file, 'r') as ifo:
+            self.fill_in_listbox(index_url, ifo.readlines())
 
     def download_segments(self):
         if self._segments.size() == 0:
@@ -448,6 +434,29 @@ class Main(tk.Frame):
         minimal = min(selected)
         maximal = max(selected)
         self._segments.delete(minimal, maximal)
+
+    def fill_in_listbox(self, index_url, lines):
+        """
+        This part of code is tricky, because websites use disturbed URL in M3U8 file.
+        """
+        urls = []
+        domain = url_domain(index_url)
+        direct = url_directory(index_url)
+        for line in lines:
+            if line.startswith('#'):
+                continue
+            line = line.strip()
+            if len(line) == 0:
+                continue
+            if line.find('://') > 0:  # full URL
+                pass
+            elif line.find('/', 1) == -1:  # basename
+                line = url_join(direct, line)
+            else:
+                line = url_join(domain, line)
+            urls.append(line)
+        self._segments.delete(0, tk.END)
+        self._segments.insert(tk.END, *urls)
 
 if __name__ == '__main__':
     root = tk.Tk(className='ts merger')
