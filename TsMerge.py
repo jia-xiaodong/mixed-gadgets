@@ -217,6 +217,7 @@ class Main(tk.Frame):
         tk.Label(frame, text='Output: ').pack(side=tk.LEFT)
         self._output = tk.StringVar()
         tk.Entry(frame, textvariable=self._output).pack(side=tk.LEFT, expand=tk.YES, fill=tk.X)
+        tk.Button(frame, text='Browse', command=self.save_as).pack(side=tk.LEFT)
         tk.Button(frame, text='Merge', command=self.merge_cache).pack(side=tk.LEFT)
         #
         self.init_stats_tip()
@@ -350,14 +351,19 @@ class Main(tk.Frame):
                 self._btn.config(text='Download')
                 tkMessageBox.showinfo(Main.WND_TITLE, 'All segments are downloaded.')
 
+    def save_as(self):
+        filename = tkFileDialog.asksaveasfilename(defaultextension='.mp4')
+        if filename == '':
+            return
+        self._output.set(filename)
+
     def merge_cache(self):
         tmp = self._tmp_dir.get()
         if tmp == '':
             return
         out = self._output.get()
         if out == '':
-            out = tkFileDialog.asksaveasfilename(defaultextension='.mp4')
-            self._output.set(out)
+            return
         #
         try:
             videos = [i for i in os.listdir(tmp) if i.endswith('.ts')]
