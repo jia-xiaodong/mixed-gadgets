@@ -149,6 +149,7 @@ class Downloader(threading.Thread):
 
 
 class Main(tk.Frame):
+    WND_TITLE = 'TS Merger'
     INDEX_FILE = 'm3u8.txt'
 
     def __init__(self, master, *a, **kw):
@@ -163,7 +164,9 @@ class Main(tk.Frame):
         # row 1 -- step 1
         frame = tk.Frame(group)
         frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
-        tk.Label(frame, text='URL: ').pack(side=tk.LEFT)
+        lbl = tk.Label(frame, text='URL: ')
+        lbl.pack(side=tk.LEFT)
+        lbl.bind('<Double-Button-1>', self.clear_url)
         self._url = tk.StringVar()
         tk.Entry(frame, textvariable=self._url).pack(side=tk.LEFT, expand=tk.YES, fill=tk.X)
         btn = tk.Button(frame, text='Download', command=self.download_index_file)  # download m3u8 file (index file)
@@ -214,7 +217,6 @@ class Main(tk.Frame):
         tk.Label(frame, text='Output: ').pack(side=tk.LEFT)
         self._output = tk.StringVar()
         tk.Entry(frame, textvariable=self._output).pack(side=tk.LEFT, expand=tk.YES, fill=tk.X)
-        tk.Button(frame, text='Browse', command=self.save_as).pack(side=tk.LEFT)
         tk.Button(frame, text='Merge', command=self.merge_cache).pack(side=tk.LEFT)
         #
         self.init_stats_tip()
@@ -224,12 +226,6 @@ class Main(tk.Frame):
         if adir == '':
             return
         self._tmp_dir.set(adir)
-
-    def save_as(self):
-        filename = tkFileDialog.asksaveasfilename(defaultextension='.mp4')
-        if filename == '':
-            return
-        self._output.set(filename)
 
     def download_index_file(self):
         index_url = self._url.get()
@@ -352,7 +348,7 @@ class Main(tk.Frame):
                 self.after(100, self.listen_for_progress)
             else:
                 self._btn.config(text='Download')
-                tkMessageBox.showinfo('m3u8 downloader', 'All segments are downloaded.')
+                tkMessageBox.showinfo(Main.WND_TITLE, 'All segments are downloaded.')
 
     def merge_cache(self):
         tmp = self._tmp_dir.get()
@@ -360,18 +356,22 @@ class Main(tk.Frame):
             return
         out = self._output.get()
         if out == '':
-            return
+            out = tkFileDialog.asksaveasfilename(defaultextension='.mp4')
+            self._output.set(out)
         #
-        videos = [i for i in os.listdir(tmp) if i.endswith('.ts')]
-        videos.sort()
-        ofo = open(out, 'wb')
-        os.chdir(tmp)
-        for i in videos:
-            ifo = open(i, 'rb')
-            ofo.write(ifo.read())
-            ifo.close()
-        ofo.close()
-        tkMessageBox.showinfo('m3u8 downloader', 'Merge is done.')
+        try:
+            videos = [i for i in os.listdir(tmp) if i.endswith('.ts')]
+            videos.sort()
+            ofo = open(out, 'wb')
+            os.chdir(tmp)
+            for i in videos:
+                ifo = open(i, 'rb')
+                ofo.write(ifo.read())
+                ifo.close()
+            ofo.close()
+            tkMessageBox.showinfo(Main.WND_TITLE, 'Merge is done.')
+        except Exception as e:
+            tkMessageBox.showerror(Main.WND_TITLE, str(e))
 
     def init_stats_tip(self):
         self._stats = DownloadStats(3)  # refresh data in every 3 seconds
@@ -458,7 +458,10 @@ class Main(tk.Frame):
         self._segments.delete(0, tk.END)
         self._segments.insert(tk.END, *urls)
 
+    def clear_url(self, evt):
+        self._url.set('')
+
 if __name__ == '__main__':
-    root = tk.Tk(className='ts merger')
+    root = tk.Tk(className=Main.WND_TITLE)
     Main(root).pack(fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
     root.mainloop()
