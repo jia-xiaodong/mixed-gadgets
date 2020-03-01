@@ -74,7 +74,7 @@ class DownloadStats(object):
 
     def update(self, size):
         """
-        Update when every blocks is downloaded.
+        Update when every blocks is done with downloading.
         """
         self._downloaded_size += size
         self._downloaded_blocks += 1
@@ -102,7 +102,7 @@ class DownloadStats(object):
         return seconds_per_block * (self._total_blocks - self._downloaded_blocks)
 
 
-class Downloader(threading.Thread):
+class ThreadDownloader(threading.Thread):
     def __init__(self, url, dst):
         threading.Thread.__init__(self)
         self._url = url  # source URL
@@ -115,11 +115,9 @@ class Downloader(threading.Thread):
             content = ifo.read()
             ifo.close()
             self._size = len(content)
-
-            dst = os.path.join(self._dst, os.path.basename(self._url))
-            if Downloader.file_exists(dst, content):
+            if self.file_exists(content):
                 return
-            with open(dst, 'wb') as ofo:
+            with open(self._dst, 'wb') as ofo:
                 ofo.write(content)
         except Exception as e:
             print('%s: %s' % (self._url, e))
@@ -127,21 +125,20 @@ class Downloader(threading.Thread):
     def downloaded_size(self):
         return self._size
 
-    @staticmethod
-    def file_exists(filename, content):
+    def file_exists(self, content):
         """
         check if file exists already on local disk.
         @param filename: local disk filename (full dir + base name)
         @param content: is belonging to remote resource.
         @return: True if it exists
         """
-        if not os.path.exists(filename):
+        if not os.path.exists(self._dst):
             return False
-        if not os.path.isfile(filename):
+        if not os.path.isfile(self._dst):
             return False
-        if os.path.getsize(filename) != len(content):
+        if os.path.getsize(self._dst) != len(content):
             return False
-        with open(filename, 'rb') as ofo:
+        with open(self._dst, 'rb') as ofo:
             old = ofo.read()
             digest1 = md5(old).digest()
             digest2 = md5(content).digest()
@@ -166,10 +163,10 @@ class Main(tk.Frame):
         frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
         lbl = tk.Label(frame, text='URL: ')
         lbl.pack(side=tk.LEFT)
-        lbl.bind('<Double-Button-1>', self.clear_url)
+        lbl.bind('<Double-Button-1>', self.onclick_clear_url)
         self._url = tk.StringVar()
         tk.Entry(frame, textvariable=self._url).pack(side=tk.LEFT, expand=tk.YES, fill=tk.X)
-        btn = tk.Button(frame, text='Download', command=self.download_index_file)  # download m3u8 file (index file)
+        btn = tk.Button(frame, text='Download', command=self.onclick_download_index_file)  # download m3u8 file (index file)
         btn.pack(side=tk.LEFT)
         # row 2 -- step 1
         frame = tk.Frame(group)
@@ -177,14 +174,14 @@ class Main(tk.Frame):
         tk.Label(frame, text='Local Dir: ').pack(side=tk.LEFT)
         self._tmp_dir = tk.StringVar()
         tk.Entry(frame, textvariable=self._tmp_dir).pack(side=tk.LEFT, expand=tk.YES, fill=tk.X)
-        tk.Button(frame, text='browse', command=self.browse_tmp).pack(side=tk.LEFT)
+        tk.Button(frame, text='Browse', command=self.onclick_browse_tmp).pack(side=tk.LEFT)
         # step 2
         group = tk.LabelFrame(self, text='Step 2: Segments')
         group.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
         # row 1 -- step 2
         frame = tk.Frame(group, padx=5, pady=5)
         frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
-        self._segments = tk.Listbox(frame, height=8, selectmode=tk.EXTENDED)
+        self._segments = ttk.Treeview(frame, selectmode=tk.EXTENDED, show='headings', columns=('sn', 'url', 'state'))
         self._segments.pack(side=tk.LEFT, expand=tk.YES, fill=tk.BOTH)
         yscroll = tk.Scrollbar(frame, orient=tk.VERTICAL, command=self._segments.yview)
         yscroll.pack(side=tk.RIGHT, expand=tk.NO, fill=tk.Y)
@@ -192,15 +189,20 @@ class Main(tk.Frame):
         xscroll = tk.Scrollbar(group, orient=tk.HORIZONTAL, command=self._segments.xview)
         xscroll.pack(side=tk.TOP, expand=tk.YES, fill=tk.X)
         self._segments['xscrollcommand'] = xscroll.set
-        self._segments.bind('<Key-Delete>', self.delete_segments)
+        self._segments.bind('<Key-Delete>', self.onkey_tree_delete)
+        self._segments.heading('sn', text='SN')
+        self._segments.heading('url', text='URL')  # '#0' column is icon and it's hidden here
+        self._segments.heading('state', text='State')    # we only need two columns: '#1' and '#2'
+        self._segments.column('sn', width=30, stretch=False)
+        self._segments.column('state', width=50, stretch=False, anchor=tk.CENTER)
         # row 2 -- step 2
         frame = tk.Frame(group)
         frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
-        tk.Button(frame, text='Read Local M3U8 File', command=self.load_index_file).pack(side=tk.LEFT)
+        tk.Button(frame, text='Read Local M3U8 File', command=self.onclick_load_index_file).pack(side=tk.LEFT)
         tk.Label(frame, text='Threads: ').pack(side=tk.LEFT)
         self._job_num = tk.IntVar()
         tk.Spinbox(frame, textvariable=self._job_num, from_=1, to=10, width=2).pack(side=tk.LEFT)
-        self._btn = tk.Button(frame, text='Download', command=self.download_segments)
+        self._btn = tk.Button(frame, text='Download', command=self.onclick_download_segments)
         self._btn.pack(side=tk.LEFT)
         # row 3 -- step 2
         frame = tk.Frame(group)
@@ -217,18 +219,18 @@ class Main(tk.Frame):
         tk.Label(frame, text='Output: ').pack(side=tk.LEFT)
         self._output = tk.StringVar()
         tk.Entry(frame, textvariable=self._output).pack(side=tk.LEFT, expand=tk.YES, fill=tk.X)
-        tk.Button(frame, text='Browse', command=self.save_as).pack(side=tk.LEFT)
-        tk.Button(frame, text='Merge', command=self.merge_cache).pack(side=tk.LEFT)
+        tk.Button(frame, text='Browse', command=self.onclick_save_as).pack(side=tk.LEFT)
+        tk.Button(frame, text='Merge', command=self.onclick_merge).pack(side=tk.LEFT)
         #
         self.init_stats_tip()
 
-    def browse_tmp(self):
+    def onclick_browse_tmp(self):
         adir = tkFileDialog.askdirectory()
         if adir == '':
             return
         self._tmp_dir.set(adir)
 
-    def download_index_file(self):
+    def onclick_download_index_file(self):
         index_url = self._url.get()
         index_url = index_url.strip()
         if len(index_url) == 0:
@@ -247,12 +249,11 @@ class Main(tk.Frame):
             ofo = open(dst, 'w')
             ofo.write(content)
             ofo.close()
-            # fill in the listbox
             self.fill_in_listbox(index_url, content.split('\n'))
         except Exception as e:
             print(e)
 
-    def load_index_file(self):
+    def onclick_load_index_file(self):
         index_url = self._url.get()
         index_url = index_url.strip()
         if len(index_url) == 0:
@@ -266,24 +267,24 @@ class Main(tk.Frame):
         with open(index_file, 'r') as ifo:
             self.fill_in_listbox(index_url, ifo.readlines())
 
-    def download_segments(self):
-        if self._segments.size() == 0:
+    def onclick_download_segments(self):
+        urls = self._segments.get_children()
+        if len(urls) == 0:
             return
         #
         if self._running:
-            self._running = False
+            self._running = False   # global signal to stop running jobs
             self._btn.config(text='Download')
             return
         self._running = True
         self._btn.config(text='Cancel')
         try:
             self.clear_queue()
-            content = self._segments.get(0, tk.END)
-            for i in content:
+            for i in urls:
                 self._job_queue.put(i)
             #
             self._progress.set(0)
-            self._progressbar.config(maximum=self._job_queue.qsize())
+            self._progressbar.config(maximum=len(urls))
             #
             threading.Thread(target=self.worker_thread).start()
             self.after(100, self.listen_for_progress)
@@ -314,24 +315,34 @@ class Main(tk.Frame):
                 if i.isAlive():
                     continue
                 sz = i.downloaded_size()
+                self._stats.update(sz)
+                # visualize task state: completion or failure
                 if sz > 0:
-                    # remove it from Listbox
-                    content = self._segments.get(0, tk.END)
-                    index = content.index(i._url)
-                    self._segments.delete(index)
+                    self._segments.delete(i.iid)
+                else:
+                    self._segments.set(i.iid, column='state', value='X')
+                # no matter if download is successful, remove job from
                 jobs.remove(i)
                 # report progress
                 progress += 1
                 self._msg_queue.put(progress)
-                self._stats.update(sz)
             # if user changes settings of concurrent jobs
-            slots = max(self._job_num.get() - len(jobs), 0)
-            added = min(slots, self._job_queue.qsize())
+            free_slots = max(self._job_num.get() - len(jobs), 0)
+            added = min(free_slots, self._job_queue.qsize())
             for i in range(0, added):
-                ts = self._job_queue.get()
-                job = Downloader(ts, cache)
+                iid = self._job_queue.get()
+                #  [ Important Point about ttk.Treeview ]
+                # no matter what type it was when inserted into 'values',
+                # it is str of type now when being retrieved.
+                #
+                # In short, be careful of below 'sn'
+                sn, url, state = self._segments.item(iid, 'values')
+                dst = os.path.join(cache, 'out%04d.ts' % int(sn))
+                job = ThreadDownloader(url, dst)
+                job.iid = iid  # attach a temporary attribute
                 jobs.append(job)
                 job.start()
+                self._segments.set(iid, column='state', value='...')
         self._running = False
         self.disable_stats_tip()
 
@@ -351,13 +362,13 @@ class Main(tk.Frame):
                 self._btn.config(text='Download')
                 tkMessageBox.showinfo(Main.WND_TITLE, 'All segments are downloaded.')
 
-    def save_as(self):
+    def onclick_save_as(self):
         filename = tkFileDialog.asksaveasfilename(defaultextension='.mp4')
         if filename == '':
             return
         self._output.set(filename)
 
-    def merge_cache(self):
+    def onclick_merge(self):
         tmp = self._tmp_dir.get()
         if tmp == '':
             return
@@ -435,11 +446,13 @@ class Main(tk.Frame):
     def hide_tip(self, evt=None):
         self._tip_wnd.destroy()
 
-    def delete_segments(self, evt):
-        selected = self._segments.curselection()
-        minimal = min(selected)
-        maximal = max(selected)
-        self._segments.delete(minimal, maximal)
+    def onkey_tree_delete(self, evt):
+        if self._running:  # keep treeview items intact when downloading
+            return
+        selected = self._segments.selection()
+        # only unassigned job can be deleted
+        unassigned = [i for i in selected if self._segments.item(i, 'values')[2] == '']
+        self._segments.delete(*selected)
 
     def fill_in_listbox(self, index_url, lines):
         """
@@ -461,13 +474,16 @@ class Main(tk.Frame):
             else:
                 line = url_join(domain, line)
             urls.append(line)
-        self._segments.delete(0, tk.END)
-        self._segments.insert(tk.END, *urls)
+        self._segments.delete(*self._segments.get_children())
+        for i, url in enumerate(urls, start=1):
+            iid = 'I%04d' % i
+            self._segments.insert('', tk.END, iid=iid, values=(i, url, ''))
 
-    def clear_url(self, evt):
+    def onclick_clear_url(self, evt):
         self._url.set('')
 
 if __name__ == '__main__':
-    root = tk.Tk(className=Main.WND_TITLE)
+    root = tk.Tk()
+    root.title(Main.WND_TITLE)
     Main(root).pack(fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
     root.mainloop()
