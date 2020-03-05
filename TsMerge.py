@@ -59,8 +59,8 @@ class DownloadStats(object):
 
     def init_for_new_download(self, value):
         self._downloaded_size = 0    # bytes
-        self._downloaded_blocks = 0  # number of .ts files
-        self._total_blocks = value
+        self._downloaded_blocks = 0  # number of .ts files downloaded
+        self._total_blocks = value   # number of .ts files in total
         self._time_consumed = 0      # seconds
         self.reset(time.time())
 
@@ -204,6 +204,7 @@ class Main(tk.Frame):
         tk.Spinbox(frame, textvariable=self._job_num, from_=1, to=10, width=2).pack(side=tk.LEFT)
         self._btn = tk.Button(frame, text='Download', command=self.onclick_download_segments)
         self._btn.pack(side=tk.LEFT)
+        tk.Button(frame, text='Delete', command=self.onclick_del_segments).pack(side=tk.RIGHT)
         # row 3 -- step 2
         frame = tk.Frame(group)
         frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
@@ -282,9 +283,10 @@ class Main(tk.Frame):
             self.clear_queue()
             for i in urls:
                 self._job_queue.put(i)
+                self._segments.set(i, column='state', value='')
             #
             self._progress.set(0)
-            self._progressbar.config(maximum=len(urls))
+            self._progressbar.config(maximum=self._job_queue.qsize())
             #
             threading.Thread(target=self.worker_thread).start()
             self.after(100, self.listen_for_progress)
@@ -311,6 +313,7 @@ class Main(tk.Frame):
         progress = 0
         jobs = []
         while self._running and progress < num:
+            job_num = len(jobs)
             for i in jobs[:]:
                 if i.isAlive():
                     continue
@@ -321,10 +324,11 @@ class Main(tk.Frame):
                     self._segments.delete(i.iid)
                 else:
                     self._segments.set(i.iid, column='state', value='X')
-                # no matter if download is successful, remove job from
+                # no matter if download is successful, remove dead job from queue
                 jobs.remove(i)
-                # report progress
-                progress += 1
+            # report progress
+            if len(jobs) < job_num:
+                progress += job_num - len(jobs)
                 self._msg_queue.put(progress)
             # if user changes settings of concurrent jobs
             free_slots = max(self._job_num.get() - len(jobs), 0)
@@ -335,7 +339,7 @@ class Main(tk.Frame):
                 # no matter what type it was when inserted into 'values',
                 # it is str of type now when being retrieved.
                 #
-                # In short, be careful of below 'sn'
+                # In short, be careful of below 'sn' in this app.
                 sn, url, state = self._segments.item(iid, 'values')
                 dst = os.path.join(cache, 'out%04d.ts' % int(sn))
                 job = ThreadDownloader(url, dst)
@@ -351,14 +355,15 @@ class Main(tk.Frame):
         Update UI for downloading progress
         """
         try:
-            progress = self._msg_queue.get(False)  # non-block
+            progress = self._msg_queue.get(False)  # non-block mode in UI thread
             self._progress.set(progress)
-        except Queue.Empty: # must exist to avoid trace-back
+        except Queue.Empty:
             pass
         finally:
             if self._running:
                 self.after(100, self.listen_for_progress)
             else:
+                self._progress.set(self._progressbar['maximum'])
                 self._btn.config(text='Download')
                 tkMessageBox.showinfo(Main.WND_TITLE, 'All segments are downloaded.')
 
@@ -482,8 +487,56 @@ class Main(tk.Frame):
     def onclick_clear_url(self, evt):
         self._url.set('')
 
-if __name__ == '__main__':
+    def onclick_del_segments(self):
+        tmp = self._tmp_dir.get()
+        if tmp == '':
+            return
+        videos = [i for i in os.listdir(tmp) if i.endswith('.ts')]
+        os.chdir(tmp)
+        for i in videos:
+            try:
+                os.remove(i)
+            except Exception as e:
+                print(e)
+
+
+def test():
+    from Crypto.Cipher import AES
+
+    key = '1d70e45cc9be89b8'
+    try:
+        #
+        dir_encoded = '/Users/xiaodong/UserData/pycharm/output/encoded'
+        videos = [i for i in os.listdir(dir_encoded) if i.endswith('.ts')]
+        videos.sort()
+        #
+        aes = AES.new(key, AES.MODE_CBC, key)
+        #
+        dir_tmp = '/Users/xiaodong/UserData/pycharm/output'
+        os.chdir(dir_tmp)
+        for i in videos:
+            out = os.path.join(dir_tmp, i)
+            with open('encoded/%s' % i, 'rb') as ifo, open(out, 'wb') as ofo:
+                content = ifo.read()
+                content = aes.decrypt(content)
+                # Because AES encoding requires data length is multiples of 16-byte.
+                # So every file has trailing padding bytes from 1 byte to 16 bytes. For
+                # example, [1], [2,2], [6,6,6,6,6,6]
+                # These padding bytes must be stripped away before merge.
+                padding_size = ord(content[-1])
+                if padding_size > 0:
+                    content = content[:-padding_size]
+                ofo.write(content)
+        tkMessageBox.showinfo(Main.WND_TITLE, 'Merge is done.')
+    except Exception as e:
+            tkMessageBox.showerror(Main.WND_TITLE, str(e))
+
+
+def main():
     root = tk.Tk()
     root.title(Main.WND_TITLE)
     Main(root).pack(fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
     root.mainloop()
+
+if __name__ == '__main__':
+    main()

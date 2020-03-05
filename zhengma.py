@@ -190,6 +190,7 @@ class MainWnd(tk.Tk):
             return
         if new_word is '':
             return
+        new_code = new_code.lower()
         self._database.insert_new(new_code, new_word)
         # as a feedback, insert new word to QUERY window
         children = self._words.get_children('')
