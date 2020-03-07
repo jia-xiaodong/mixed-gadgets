@@ -204,7 +204,7 @@ class Main(tk.Frame):
         tk.Spinbox(frame, textvariable=self._job_num, from_=1, to=10, width=2).pack(side=tk.LEFT)
         self._btn = tk.Button(frame, text='Download', command=self.onclick_download_segments)
         self._btn.pack(side=tk.LEFT)
-        tk.Button(frame, text='Delete', command=self.onclick_del_segments).pack(side=tk.RIGHT)
+        tk.Button(frame, text='Delete Local Segments', command=self.onclick_del_segments).pack(side=tk.RIGHT)
         # row 3 -- step 2
         frame = tk.Frame(group)
         frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
@@ -452,11 +452,20 @@ class Main(tk.Frame):
         self._tip_wnd.destroy()
 
     def onkey_tree_delete(self, evt):
-        if self._running:  # keep treeview items intact when downloading
+        # keep treeview items intact when downloading, because jobs are in queue.
+        if self._running:
             return
+        #
         selected = self._segments.selection()
-        # only unassigned job can be deleted
-        unassigned = [i for i in selected if self._segments.item(i, 'values')[2] == '']
+        num = len(selected)
+        if num == 0:
+            return
+        if num == 1:
+            msg = 'Are you sure to delete\n\n%s\n\n?' % selected[0]
+        else:
+            msg = 'Are you sure to delete %d jobs?' % num
+        if not tkMessageBox.askokcancel(Main.WND_TITLE, msg):
+            return
         self._segments.delete(*selected)
 
     def fill_in_listbox(self, index_url, lines):
@@ -492,6 +501,11 @@ class Main(tk.Frame):
         if tmp == '':
             return
         videos = [i for i in os.listdir(tmp) if i.endswith('.ts')]
+        num = len(videos)
+        if num == 0:
+            return
+        if not tkMessageBox.askokcancel(Main.WND_TITLE, 'Are you sure to delete %d files?' % num):
+            return
         os.chdir(tmp)
         for i in videos:
             try:
