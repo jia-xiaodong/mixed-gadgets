@@ -18,6 +18,7 @@ import PIL.ImageTk as ImageTk
 import PIL.ImageFilter as ImageFilter
 import os, shutil
 import Queue, threading
+from sys import platform
 
 
 class PhotoCrop(tk.Frame):
@@ -291,14 +292,20 @@ class PhotoCrop(tk.Frame):
         # Canvas bug: it can't scale drawn image.
         # So delete it before re-draw an image
         self.canvas.delete(self.image_id)
-        bg_image = self.image_bg
+        # [bug-fix] Mac Canvas doesn't support RGBA
+        if platform.startswith('darwin') and 'A' in Image.getmodebandnames(self.image_bg.mode):
+            bg_color = self.winfo_rgb(self.canvas['bg'])
+            bg_color = tuple([i * 255 / 65535 for i in bg_color])
+            bg_image = Image.new('RGB', self.image_bg.size, color=bg_color)
+            bg_image.paste(self.image_bg, mask=self.image_bg)
+        else:
+            bg_image = self.image_bg.copy()
+        # draw a black mask over image
         if box:
             box = [int(round(f)) for f in box]
-            bg_image = self.image_bg.copy()
-            black = Image.new('L', self.image_bg.size)
             mask = Image.new('L', self.image_bg.size, 210)  # 0 means keeping original; 255 means total black
-            mask.paste(Image.new('L', (box[2],box[3])), (box[0],box[1]))
-            bg_image.paste(black, None, mask)
+            mask.paste(0, (box[0],box[1],box[0]+box[2], box[1]+box[3]))
+            bg_image.paste(0, mask=mask)
         self.image_dst = ImageTk.PhotoImage(bg_image)
         self.image_id = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.image_dst)
 
