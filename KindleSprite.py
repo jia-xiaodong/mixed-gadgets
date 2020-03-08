@@ -289,6 +289,9 @@ class PhotoCrop(tk.Frame):
             self.canvas.tag_raise(self.outline_id, self.image_id)
 
     def draw_image(self, box=None):
+        """
+        @param box: (left, top, width, height) - highlight region with a transparent mask
+        """
         # Canvas bug: it can't scale drawn image.
         # So delete it before re-draw an image
         self.canvas.delete(self.image_id)
