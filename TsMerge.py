@@ -380,6 +380,10 @@ class Main(tk.Frame):
         out = self._output.get()
         if out == '':
             return
+        if os.path.isfile(out) and \
+                not tkMessageBox.askokcancel(Main.WND_TITLE,
+                                             'The file already exists.\nDo you want to overwrite it?'):
+            return
         #
         try:
             videos = [i for i in os.listdir(tmp) if i.endswith('.ts')]
