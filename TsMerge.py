@@ -103,15 +103,16 @@ class DownloadStats(object):
 
 
 class ThreadDownloader(threading.Thread):
-    def __init__(self, url, dst):
+    def __init__(self, url, dst, timeout=3):
         threading.Thread.__init__(self)
         self._url = url  # source URL
         self._dst = dst  # destination folder
+        self._timeout = timeout
         self._size = 0
 
     def run(self):
         try:
-            ifo = urllib2.urlopen(self._url, timeout=3)
+            ifo = urllib2.urlopen(self._url, timeout=self._timeout)
             content = ifo.read()
             ifo.close()
             self._size = len(content)
@@ -199,9 +200,12 @@ class Main(tk.Frame):
         frame = tk.Frame(group)
         frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
         tk.Button(frame, text='Read Local M3U8 File', command=self.onclick_load_index_file).pack(side=tk.LEFT)
-        tk.Label(frame, text='Threads: ').pack(side=tk.LEFT)
+        tk.Label(frame, text='Threads:').pack(side=tk.LEFT)
         self._job_num = tk.IntVar()
         tk.Spinbox(frame, textvariable=self._job_num, from_=1, to=10, width=2).pack(side=tk.LEFT)
+        tk.Label(frame, text='Timeout:').pack(side=tk.LEFT)
+        self._timeout = tk.IntVar()
+        tk.Spinbox(frame, textvariable=self._timeout, from_=3, to=9, width=2).pack(side=tk.LEFT)
         self._btn = tk.Button(frame, text='Download', command=self.onclick_download_segments)
         self._btn.pack(side=tk.LEFT)
         tk.Button(frame, text='Delete Local Segments', command=self.onclick_del_segments).pack(side=tk.RIGHT)
@@ -331,6 +335,7 @@ class Main(tk.Frame):
                 progress += job_num - len(jobs)
                 self._msg_queue.put(progress)
             # if user changes settings of concurrent jobs
+            timeout = self._timeout.get()
             free_slots = max(self._job_num.get() - len(jobs), 0)
             added = min(free_slots, self._job_queue.qsize())
             for i in range(0, added):
@@ -342,7 +347,7 @@ class Main(tk.Frame):
                 # In short, be careful of below 'sn' in this app.
                 sn, url, state = self._segments.item(iid, 'values')
                 dst = os.path.join(cache, 'out%04d.ts' % int(sn))
-                job = ThreadDownloader(url, dst)
+                job = ThreadDownloader(url, dst, timeout)
                 job.iid = iid  # attach a temporary attribute
                 jobs.append(job)
                 job.start()
@@ -402,6 +407,7 @@ class Main(tk.Frame):
     def init_stats_tip(self):
         self._stats = DownloadStats(3)  # refresh data in every 3 seconds
         self._tip_text = tk.StringVar()
+        self._tip_wnd = None
 
     def enable_stats_tip(self):
         self._tip_refresher = RepeatTimer(3.0, self.refresh_tip)
@@ -438,6 +444,9 @@ class Main(tk.Frame):
         self._tip_text.set(self.realtime_tip())
 
     def show_tip(self, evt=None):
+        if self._tip_wnd != None:
+            self._tip_wnd.destroy()
+        #
         self._tip_wnd = tk.Toplevel(self._progressbar)
         self._tip_wnd.wm_overrideredirect(True)  # remove window title bar
         label = tk.Label(self._tip_wnd, textvariable=self._tip_text, justify=tk.LEFT, bg='yellow')
@@ -454,6 +463,7 @@ class Main(tk.Frame):
 
     def hide_tip(self, evt=None):
         self._tip_wnd.destroy()
+        self._tip_wnd = None
 
     def onkey_tree_delete(self, evt):
         # keep treeview items intact when downloading, because jobs are in queue.
@@ -516,6 +526,7 @@ class Main(tk.Frame):
                 os.remove(i)
             except Exception as e:
                 print(e)
+        os.remove(Main.INDEX_FILE)
 
 
 def test():
