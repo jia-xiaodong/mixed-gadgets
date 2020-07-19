@@ -9,7 +9,10 @@ import datetime
 import zlib
 import os, sys
 import math
+import json
 
+
+APP_TITLE = 'World-Pal'
 
 class KnowledgePoint():
     """
@@ -254,29 +257,51 @@ class WordStore():
             print('Error on update: %s' % e)
 
     @staticmethod
-    def list_tables(filename):
+    def is_column_identical(cursor, table_name, table_columns):
         """
-        @return None if this file isn't dedicated for Word-Pal, otherwise all table names.
+        @param cursor: sqlite3.cursor object.
+        @param table_name: str
+        @param table_columns: array
         """
-        def is_column_identical(cursor, table_name, table_columns):
-            cursor.execute('PRAGMA table_info (%s)' % table_name)
-            structs = cursor.fetchall()
-            result = (structs[i][1] == table_columns[i] for i in range(len(table_columns)))
-            return all(result)
+        cursor.execute('PRAGMA table_info (%s)' % table_name)
+        structs = cursor.fetchall()
+        result = (structs[i][1] == table_columns[i] for i in range(len(table_columns)))
+        return all(result)
+
+    @staticmethod
+    def is_valid(filename):
+        """
+        @remark:
+           1. make sure file does exist before invoking.
+           2. return True if it's an empty file.
+        """
         try:
             with sqlite3.connect(filename) as con:
                 cur = con.cursor()
                 cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
                 tables = [i[0] for i in cur.fetchall()]
                 column_names = [WordStore.COL_0, WordStore.COL_1, WordStore.COL_2, WordStore.COL_3]
-                qualified = filter(lambda i: is_column_identical(cur, i, column_names), tables)
+                qualified = filter(lambda i: WordStore.is_column_identical(cur, i, column_names), tables)
             #
             # [design] all tables have same structure. If not, this database is unknown.
-            if len(qualified) != len(tables):
-                return None
-            return qualified
-        except:
-            return None
+            return len(qualified) == len(tables)
+        except Exception as e:
+            print(e)
+            return False
+
+    @staticmethod
+    def list_tables(filename):
+        """
+        @remark: make sure file does exist and is valid for this application.
+        """
+        try:
+            with sqlite3.connect(filename) as con:
+                cur = con.cursor()
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                return [i[0] for i in cur.fetchall()]
+        except Exception as e:
+            print(e)
+            return []
 
     @staticmethod
     def insert_table(filename, table_name):
@@ -447,14 +472,17 @@ class SpecifyWordStoreFrame(tk.Frame):
         self.combo1.bind('<<ComboboxSelected>>', self.on_db_selected)
         sub = tk.Frame(frm)
         sub.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
-        tk.Button(sub, text='Browse Old', command=self.browse_old).pack(side=tk.LEFT)
-        tk.Button(sub, text='Create New', command=self.create_new).pack(side=tk.RIGHT)
+        tk.Button(sub, text='Browse Old', command=self.browse_old).pack(side=tk.LEFT, expand=tk.YES)
+        tk.Button(sub, text='Create New', command=self.create_new).pack(side=tk.LEFT, expand=tk.YES)
+        tk.Button(sub, text='Update INI', command=self.config_write).pack(side=tk.LEFT, expand=tk.YES)
         frm = tk.LabelFrame(master, text='Step 2: Choose a Language')
         frm.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
         tk.Label(frm, text='Language:').pack(side=tk.LEFT)
         self.table_name = tk.StringVar()
         self.combo2 = ttk.Combobox(frm, textvariable=self.table_name)
         self.combo2.pack(side=tk.LEFT, fill=tk.X, expand=tk.YES, padx=5, pady=5)
+        #
+        self.config_read()
 
     def browse_old(self):
         option = {'filetypes': [('SQLite3 File', ('*.db3', '*.s3db', '*.sqlite3', '*.sl3')),
@@ -462,17 +490,19 @@ class SpecifyWordStoreFrame(tk.Frame):
         filename = tkFileDialog.askopenfilename(**option)
         if len(filename) == 0:
             return
-        self.update_combo1(filename)
+        if not WordStore.is_valid(filename):
+            tkMessageBox.showerror(APP_TITLE, 'Wrong database file!')
+        self.combo1_set_entry(filename)
 
     def create_new(self):
         filename = tkFileDialog.asksaveasfilename(defaultextension='.sqlite3')
         if len(filename) == 0:
             return
-        # My Design on Overwriting: do NOT overwrite!!
-        if os.path.exists(filename):
-            tkMessageBox.showerror('Word-Pal', "Cannot remove %s." % filename)
+        # My Design: do NOT overwrite!!
+        if os.path.exists(filename) and os.path.getsize(filename) > 0:
+            tkMessageBox.showerror(APP_TITLE, "Cannot overwrite\n%s." % filename)
             return
-        self.update_combo1(filename)
+        self.combo1_set_entry(filename)
 
     def word_source(self):
         filename = self.filename.get()
@@ -488,39 +518,83 @@ class SpecifyWordStoreFrame(tk.Frame):
                 self.combo2.config(values=history)
             else:
                 self.combo2.set('')
-                tkMessageBox.showerror('Word-Pal', 'New table cannot be inserted.')
+                tkMessageBox.showerror(APP_TITLE, 'New table cannot be inserted.')
                 return None
         return filename, table
 
-    def update_combo1(self, filename):
-        if not self.on_db_selected(filename):
+    def combo1_set_entry(self, filename):
+        if self.filename.get() == filename:
             return
         self.combo1.set(filename)
+        self.on_db_selected(filename)
+        #
+        # update combo-1 list
         history = list(self.combo1.cget('values'))
-        if filename not in history:
-            history.append(filename)
+        if filename in history:
+            return
+        history.append(filename)
         self.combo1.config(values=history)
+        self.config_write()
 
     def on_db_selected(self, evt=None):
-        try:
-            filename = evt if isinstance(evt, basestring) else self.filename.get()
-            if not os.path.exists(filename):
-                raise IOError
-            tables = WordStore.list_tables(filename)
-            if tables is None:
-                tkMessageBox.showerror('World-Pal', 'Wrong database file!')
-                self.combo1.set('')
-                raise TypeError
-            self.combo2['values'] = tables
-            if len(tables) > 0:
-                self.combo2.current(0)  # first table as default
-            else:
-                self.combo2.set('')
-            return True
-        except Exception as e:
-            self.combo2.config(values=[])
+        filename = evt if isinstance(evt, basestring) else self.filename.get()
+        tables = WordStore.list_tables(filename)
+        self.combo2['values'] = tables
+        if len(tables) > 0:
+            self.combo2.current(0)  # first table as default
+        else:
             self.combo2.set('')
-            return True if type(e) is IOError else False
+
+    @staticmethod
+    def config_file():
+        name, _ = os.path.splitext(__file__)
+        return name + '.ini'
+
+    def config_read(self):
+        """
+        config file demo:
+        {
+          "history": [file1, file2],   <-- used before
+          "last": -1                   <-- last opened
+        }
+        """
+        try:
+            with open(SpecifyWordStoreFrame.config_file(), 'r') as ifo:
+                s = ifo.read()
+            cfg = json.loads(s, encoding='utf-8')
+            last = cfg.get('last', -1)
+            history = cfg.get('history', [])
+            #
+            # check if history files are valid (empty file is considered valid)
+            changed = False
+            for each in history[:]:
+                if not WordStore.is_valid(each):
+                    history.remove(each)
+                    changed = True
+            #
+            # open last opened file
+            if len(history) > 0:
+                self.combo1.config(values=history)
+                if last >= len(history) or last < 0:
+                    last = 0
+                last = history[last]
+                self.combo1.set(last)
+                self.on_db_selected(last)
+            #
+            if changed:
+                self.config_write()
+        except Exception as e:
+            print(e)
+
+    def config_write(self):
+        history = list(self.combo1.cget('values'))
+        if len(history) > 0:
+            last = history.index(self.combo1.get())
+        else:
+            last = -1
+        cfg = {'history': history, 'last': last}
+        with open(SpecifyWordStoreFrame.config_file(), 'w') as ofo:
+            json.dump(cfg, ofo, encoding='utf-8')
 
 
 class EditWord(ModalDialog):
