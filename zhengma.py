@@ -4,7 +4,7 @@
 import Tkinter as tk
 import ttk
 import tkMessageBox
-import os
+from os import SEEK_SET, SEEK_END
 
 '''
 郑码字库是一个UTF-8格式的文本文件，其内容按先后顺序分为下列几部分：
@@ -63,7 +63,7 @@ class ZhengMa:
         @param inserted_lines: an array of new words.
         """
         if len(removed_lines) > 0:
-            ofo = open(ZhengMa.DATABASE, mode='r+')  # update-mode (aka. overwrite-mode)
+            ofo = open(ZhengMa.DATABASE, mode='r+')  # update-mode
             removed_lines.sort()  # in-place sort in ascending order
             #----------------------------------------------------------
             # prepare a new array which contains inserted lines and filters out the removed.
@@ -78,8 +78,8 @@ class ZhengMa:
             #----------------------------------------------------------
             #
             offset = reduce(lambda s, i: s+len(self._char_def[i].encode('utf8')), range(0, first_removed), self._start_pos)
-            ofo.seek(offset, os.SEEK_SET)  # skip the preceding part. no need to re-write them.
-            ofo.writelines([i.encode('utf8') for i in modified_words])
+            ofo.seek(offset, SEEK_SET)  # skip the preceding part. no need to re-write them.
+            ofo.writelines(i.encode('utf8') for i in modified_words)
             ofo.write('%chardef end\n')
             ofo.truncate()
             ofo.close()
@@ -88,7 +88,7 @@ class ZhengMa:
             last = '%chardef end\n'
             new_lines = ['%s\n' % i for i in inserted_lines]
             ofo = open(ZhengMa.DATABASE, mode='r+')
-            ofo.seek(-len(last), os.SEEK_END)
+            ofo.seek(-len(last), SEEK_END)
             ofo.writelines(i.encode('utf8') for i in new_lines)
             ofo.write(last)
             ofo.close()
@@ -246,7 +246,7 @@ class QueryWord(tk.Frame):
         self._btn.pack(side=tk.LEFT)
         #
         frm = tk.Frame(self)
-        frm.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES)
+        frm.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
         tree = ttk.Treeview(frm, show='headings', columns=('code', 'word', 'index'), displaycolumns=(0,1))
         tree.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.BOTH, expand=tk.YES)
         sclb = tk.Scrollbar(frm, orient=tk.VERTICAL, command=tree.yview)
@@ -254,7 +254,8 @@ class QueryWord(tk.Frame):
         sclb.pack(side=tk.RIGHT, fill=tk.Y, expand=tk.NO)
         tree.heading('#1', text='码')
         tree.heading('#2', text='字')
-        tree.bind('<Key-Delete>', self.on_tree_delete)
+        tree.column('#1', width=150)
+        tree.bind('<Key-Delete>', self.on_tree_delete_)
         self._words = tree
 
     def get_keyword(self):
@@ -271,7 +272,7 @@ class QueryWord(tk.Frame):
             code, word = char.split(' ', 2)
             self._words.insert('', tk.END, values=(code, word, index))
 
-    def on_tree_delete(self, evt):
+    def on_tree_delete_(self, evt):
         selected = self._words.selection()
         num = len(selected)
         if num == 0:
@@ -291,19 +292,16 @@ class InsertWord(tk.Frame):
     def __init__(self, master, *a, **kw):
         tk.Frame.__init__(self, master, *a, **kw)
         frm = tk.Frame(self)
-        # fill=X, expand=NO: fill horizontal space even when resizing window
         frm.pack(side=tk.TOP, fill=tk.X, expand=tk.NO, padx=5, pady=5)
         self._new_code = tk.StringVar()
         self._new_word = tk.StringVar()
-        tk.Entry(frm, textvariable=self._new_code)\
-            .pack(side=tk.LEFT, padx=5, pady=5)
-        tk.Entry(frm, textvariable=self._new_word)\
-            .pack(side=tk.LEFT, fill=tk.X, expand=tk.YES, padx=5, pady=5)
+        tk.Entry(frm, textvariable=self._new_code, width=12).pack(side=tk.LEFT)
+        tk.Entry(frm, textvariable=self._new_word).pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
         tk.Button(frm, text='Insert', command=self.insert_new_word)\
             .pack(side=tk.LEFT)
         #
         frm = tk.Frame(self)
-        frm.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES)
+        frm.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
         tree = ttk.Treeview(frm, show='headings', columns=('Code', 'Word'))
         tree.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.BOTH, expand=tk.YES)
         sclb = tk.Scrollbar(frm, orient=tk.VERTICAL, command=tree.yview)
@@ -311,6 +309,7 @@ class InsertWord(tk.Frame):
         sclb.pack(side=tk.RIGHT, fill=tk.Y, expand=tk.NO)
         tree.heading('#1', text='码')
         tree.heading('#2', text='字')
+        tree.column('#1', width=150)
         self._words = tree
 
     def insert_new_word(self):
@@ -341,7 +340,7 @@ class RemoveWord(tk.Frame):
     def __init__(self, master, *a, **kw):
         tk.Frame.__init__(self, master, *a, **kw)
         frm = tk.Frame(self)
-        frm.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES)
+        frm.pack(side=tk.TOP, fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
         tree = ttk.Treeview(frm, show='headings', columns=('code', 'word', 'index'), displaycolumns=(0,1))
         tree.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.BOTH, expand=tk.YES)
         sclb = tk.Scrollbar(frm, orient=tk.VERTICAL, command=tree.yview)
@@ -349,18 +348,19 @@ class RemoveWord(tk.Frame):
         sclb.pack(side=tk.RIGHT, fill=tk.Y, expand=tk.NO)
         tree.heading('#1', text='码')
         tree.heading('#2', text='字')
-        tree.bind('<Key-Delete>', self.on_tree_delete)
+        tree.column('#1', width=150)
+        tree.bind('<Key-Delete>', self.on_tree_delete_)
         self._words = tree
 
     def set_table(self, values):
         children = self._words.get_children('')
-        old_values = ['%s %s' % (self._words.item(iid, 'values')[:2]) for iid in children]
+        old_values = [self._words.item(iid, 'values') for iid in children]
         for code, word, index in values:
-            new_value = '%s %s' % (code, word)
+            new_value = (code, word, index)
             if not new_value in old_values:  # check duplicate
-                self._words.insert('', tk.END, values=(code, word, index))
+                self._words.insert('', tk.END, values=new_value)
 
-    def on_tree_delete(self, evt):
+    def on_tree_delete_(self, evt):
         selected = self._words.selection()
         self._words.delete(*selected)
 
@@ -399,9 +399,11 @@ class MainWnd(tk.Tk):
         self.enhance_functions()
         #
         frm = tk.Frame(self)
-        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.YES)
-        tk.Button(frm, text='Save Database', command=self.save_database).pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
-        tk.Button(frm, text='About', command=self.about_info).pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
+        frm.pack(side=tk.TOP, fill=tk.X, expand=tk.NO, padx=5, pady=5)
+        tk.Button(frm, text='Save Database', command=self.save_database)\
+            .pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
+        tk.Button(frm, text='About', command=self.about_info)\
+            .pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
         #
         self._database = ZhengMa()
 
@@ -413,7 +415,18 @@ class MainWnd(tk.Tk):
         self._inserter.clear_table()
 
     def about_info(self):
-        pass
+        tkMessageBox.showinfo('ZhengMa', '''
+My char definition file of Zhengma for OpenVanilla is exported from \
+some online vocabulary builder. So it has many, many words that I \
+don't need.
+That's why I finally made decision to spend one day making this widget \
+out to fasten the word-removing operation. I don't need to launch vim \
+again and again.
+As for the new word insertion, it was done so long before that I can't \
+remember the exact date.\n
+Author: Tom Jay.
+2020-7-28.
+        ''')
 
     def on_query_(self):
         if not self._database.valid:
