@@ -310,6 +310,7 @@ class InsertWord(tk.Frame):
         tree.heading('#1', text='码')
         tree.heading('#2', text='字')
         tree.column('#1', width=150)
+        tree.bind('<Key-Delete>', self.on_tree_delete_)
         self._words = tree
 
     def insert_new_word(self):
@@ -334,6 +335,10 @@ class InsertWord(tk.Frame):
 
     def clear_table(self):
         self._words.delete(*self._words.get_children())
+
+    def on_tree_delete_(self, evt):
+        selected = self._words.selection()
+        self._words.delete(*selected)
 
 
 class RemoveWord(tk.Frame):
