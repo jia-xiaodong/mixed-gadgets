@@ -221,9 +221,9 @@ class TabBarFrame(tk.Frame):
         tk.Frame.__init__(self, master, *a, **kw)
         self.tabs = []
         self.active = None
-        self.top = tk.Canvas(self, height=TabBarFrame.BAR_H)
-        self.top.pack(side=tk.TOP, anchor=tk.W, fill=tk.BOTH, expand=tk.YES)
-        self.top.bind('<ButtonPress-1>', self.on_clicked)
+        self.bar = tk.Canvas(self, height=TabBarFrame.BAR_H)
+        self.bar.pack(side=tk.TOP, anchor=tk.W, fill=tk.BOTH, expand=tk.YES)
+        self.bar.bind('<ButtonPress-1>', self.on_clicked)
         #
         if TabBarFrame.text_font is None:
             TabBarFrame.text_font = tkFont.Font()
@@ -261,12 +261,12 @@ class TabBarFrame(tk.Frame):
             if t.frame == self.active:
                 self.draw_tab(i, True)
             else:
-                self.top.move(t.shape_id, -TabBarFrame.TAB_W, 0)
-                self.top.move(t.caption_id, -TabBarFrame.TAB_W, 0)
-                self.top.move(t.close_btn, -TabBarFrame.TAB_W, 0)
+                self.bar.move(t.shape_id, -TabBarFrame.TAB_W, 0)
+                self.bar.move(t.caption_id, -TabBarFrame.TAB_W, 0)
+                self.bar.move(t.close_btn, -TabBarFrame.TAB_W, 0)
         #
         tab = self.tabs[index]
-        self.top.delete(tab.caption_id, tab.shape_id, tab.close_btn)
+        self.bar.delete(tab.caption_id, tab.shape_id, tab.close_btn)
         self.tabs.remove(tab)
         frame.pack_forget()
         #
@@ -304,7 +304,7 @@ class TabBarFrame(tk.Frame):
         self.draw_tab(index, True)
 
     def on_clicked(self, evt):
-        clicked = self.top.find_closest(evt.x, evt.y)
+        clicked = self.bar.find_closest(evt.x, evt.y)
         for t in self.tabs:
             shapes = [t.caption_id, t.shape_id]
             if any(i in shapes for i in clicked):
@@ -313,7 +313,7 @@ class TabBarFrame(tk.Frame):
     def draw_tab(self, index, is_active):
         # draw shape
         tab = self.tabs[index]
-        self.top.delete(tab.shape_id)  # delete old shape
+        self.bar.delete(tab.shape_id)  # delete old shape
         if is_active:
             # create new shape
             if index == 0:
@@ -330,7 +330,7 @@ class TabBarFrame(tk.Frame):
                 points.append((x0, y0))  # point 5
                 x0 = TabBarFrame.MARGIN
                 points.append((x0, y0))  # point 6
-                tab.shape_id = self.top.create_polygon(*points, outline='black', fill='')
+                tab.shape_id = self.bar.create_polygon(*points, outline='black', fill='')
             else:
                 x0 = TabBarFrame.MARGIN + index * TabBarFrame.TAB_W
                 y0 = TabBarFrame.MARGIN
@@ -349,13 +349,13 @@ class TabBarFrame(tk.Frame):
                 points.append((x0, y0))  # point
                 x0 = TabBarFrame.MARGIN + index * TabBarFrame.TAB_W
                 points.append((x0, y0))  # point
-                tab.shape_id = self.top.create_polygon(*points, outline='black', fill='')
+                tab.shape_id = self.bar.create_polygon(*points, outline='black', fill='')
         else:
             x0 = TabBarFrame.MARGIN + index * TabBarFrame.TAB_W
             y0 = TabBarFrame.MARGIN
             x1 = x0 + TabBarFrame.TAB_W
             y1 = y0 + TabBarFrame.TAB_H
-            tab.shape_id = self.top.create_rectangle(x0, y0, x1, y1, fill='grey')
+            tab.shape_id = self.bar.create_rectangle(x0, y0, x1, y1, fill='grey')
         # draw text
         if tab.caption_id == 0:
             btn_width = TabBarFrame.TAB_W - TabBarFrame.PADDING * 2
@@ -367,19 +367,19 @@ class TabBarFrame(tk.Frame):
             center_pos = (x+btn_width/2+TabBarFrame.PADDING, y+TabBarFrame.TAB_H/2)
             if req_width > btn_width:
                 caption = '%s...' % self.sub_str_by_width(tab.caption, btn_width)
-                tab.caption_id = self.top.create_text(*center_pos, text=caption)
+                tab.caption_id = self.bar.create_text(*center_pos, text=caption)
                 self.enable_tip(tab)
             else:
-                tab.caption_id = self.top.create_text(*center_pos, text=tab.caption)
+                tab.caption_id = self.bar.create_text(*center_pos, text=tab.caption)
         else:
-            self.top.tag_lower(tab.shape_id, tab.caption_id)
+            self.bar.tag_lower(tab.shape_id, tab.caption_id)
         # draw close button
         if tab.need_button():
             x = TabBarFrame.MARGIN + (index+1) * TabBarFrame.TAB_W
             y = TabBarFrame.MARGIN
             center_pos = (x-TabBarFrame.CLOSE_W/2, y+TabBarFrame.TAB_H/2)
-            tab.close_btn = self.top.create_text(*center_pos, text='X')
-            self.top.tag_bind(tab.close_btn, '<ButtonPress>', lambda e: self.remove(tab.frame))
+            tab.close_btn = self.bar.create_text(*center_pos, text='X')
+            self.bar.tag_bind(tab.close_btn, '<ButtonPress>', lambda e: self.remove(tab.frame))
 
     def sub_str_by_width(self, text, width):
         width -= self.text_font.measure('...')  # subtract "..." in advance
@@ -392,7 +392,7 @@ class TabBarFrame(tk.Frame):
     def enable_tip(self, tab):
         self.tip_wnd = None
         def show_tip(evt):
-            self.tip_wnd = tk.Toplevel(self.top)
+            self.tip_wnd = tk.Toplevel(self.bar)
             self.tip_wnd.wm_overrideredirect(True)  # remove window title bar
             label = tk.Label(self.tip_wnd, text=tab.caption, justify=tk.LEFT)
             label.pack(ipadx=5)
@@ -408,8 +408,8 @@ class TabBarFrame(tk.Frame):
         def hide_tip(evt):
             if self.tip_wnd:
                 self.tip_wnd.destroy()
-        self.top.tag_bind(tab.caption_id, "<Enter>", show_tip)
-        self.top.tag_bind(tab.caption_id, "<Leave>", hide_tip)
+        self.bar.tag_bind(tab.caption_id, "<Enter>", show_tip)
+        self.bar.tag_bind(tab.caption_id, "<Leave>", hide_tip)
 
 
 class QueryWord(tk.Frame):
