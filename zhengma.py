@@ -4,7 +4,24 @@
 import Tkinter as tk
 import ttk
 import tkMessageBox
+import tkFont
 from os import SEEK_SET, SEEK_END
+
+def entry_add_hint(entry, hint):
+    """
+    add a hint text (as placeholder) to an entry widget
+    @param hint must be UNICODE string.
+    """
+    def on_focus_in(evt=None):
+        if entry.get() == hint:
+            entry.delete(0, tk.END)
+    def on_focus_out(evt=None):
+        if len(entry.get()) == 0:
+            entry.insert(0, hint)
+    entry.bind('<FocusIn>', on_focus_in)
+    entry.bind('<FocusOut>', on_focus_out)
+    on_focus_out()  # force to add hint
+
 
 '''
 郑码字库是一个UTF-8格式的文本文件，其内容按先后顺序分为下列几部分：
@@ -174,62 +191,225 @@ class EntryOps:
         w.event_generate('<<Paste>>')
 
 
+class TabBarTab:
+    def __init__(self, caption, frame, has_close_button=False):
+        self.caption = caption  # text of caption
+        self.caption_id = 0     # text id in canvas. "0" means invalid id.
+        self.shape_id = 0       # shape id in canvas. Shape can be rectangle or polygon.
+        self.frame = frame
+        # you can enable this feature
+        self.close_btn = 0 if has_close_button else -1
+
+    def has_close_button(self):
+        return self.close_btn != -1
+
+    def need_button(self):
+        return self.close_btn == 0
+
+
 class TabBarFrame(tk.Frame):
+    BAR_H = 30         # width of whole tab-bar
+    TAB_W = 120        # width of tab-button
+    TAB_H = BAR_H - 8  # height of tab-button. "8" is a magic number.
+    CLOSE_W = 25       # width fo "close" button
+    MARGIN = 3         # margin to borders
+    FOOTER_H = 7       # height of white ribbon at bottom
+    PADDING = 8        # left/right padding for "X" (close button)s
+    text_font = None
+
     def __init__(self, master=None, *a, **kw):
         tk.Frame.__init__(self, master, *a, **kw)
-        self.tabs = {}
+        self.tabs = []
         self.active = None
-        self.top = tk.Frame(self)
-        self.top.pack(side=tk.TOP, anchor=tk.W)
+        self.top = tk.Canvas(self, height=TabBarFrame.BAR_H)
+        self.top.pack(side=tk.TOP, anchor=tk.W, fill=tk.BOTH, expand=tk.YES)
+        self.top.bind('<ButtonPress-1>', self.on_clicked)
+        #
+        if TabBarFrame.text_font is None:
+            TabBarFrame.text_font = tkFont.Font()
+        #
+        self.bind('<Map>', self.on_widget_placed)        # event: widget placement
+        self.bind('<Configure>', self.on_resize)  # event: resize
+
+    def on_widget_placed(self, evt):
+        self.switch_tab(self.active)
+
+    def on_resize(self, evt):
+        current_active_frame = self.active
+        self.active = None  # clear it to force redrawing of active tab
+        self.switch_tab(current_active_frame)
 
     def add(self, frame, caption):
         """
         @param frame is an instance of tk.Frame class
         """
         frame.pack_forget()  # hide on init
-        btn = tk.Button(self.top, text=caption, relief=tk.SUNKEN,
-                        foreground='white', disabledforeground='black', bg='grey',
-                        command=(lambda: self.switch_tab(frame)))
-        btn.pack(side=tk.LEFT)
-        self.tabs[frame] = btn
+        self.tabs.append(TabBarTab(caption, frame))
         if len(self.tabs) == 1:
-            self.switch_tab(frame)
+            self.event_generate('<Map>')
+        else:
+            self.draw_tab(len(self.tabs)-1, False)
 
-    def remove(self, frame=None, caption=None):
+    def remove(self, frame):
         """
         @param frame is tk.Frame instance
         @param caption is str instance
         """
-        if caption is not None:
-            for f, t in self.tabs:
-                if t['text'] == caption:
-                    frame = f
-                    break  # remove the first-found one even if multiple pages have same caption
-        if frame is None:
-            return
-        if frame not in self.tabs:
-            return
+        index = self.tab_index_by_frame(frame)
+        #
+        for i, t in enumerate(self.tabs[index+1:]):
+            if t.frame == self.active:
+                self.draw_tab(i, True)
+            else:
+                self.top.move(t.shape_id, -TabBarFrame.TAB_W, 0)
+                self.top.move(t.caption_id, -TabBarFrame.TAB_W, 0)
+                self.top.move(t.close_btn, -TabBarFrame.TAB_W, 0)
+        #
+        tab = self.tabs[index]
+        self.top.delete(tab.caption_id, tab.shape_id, tab.close_btn)
+        self.tabs.remove(tab)
         frame.pack_forget()
-        self.tabs[frame].pack_forget()
-        del self.tabs[frame]
+        #
         if frame == self.active:
             self.active = None
             self.switch_tab()
+
+    def tab_index_by_frame(self, frame):
+        for i, t in enumerate(self.tabs):
+            if t.frame == frame:
+                return i
+        raise Exception("The specified frame doesn't exist.")
 
     def switch_tab(self, frame=None):
         """
         @param frame is tk.Frame instance
         """
-        if frame is None and len(self.tabs) > 0:
-            frame = self.tabs.keys()[-1]
-        if frame not in self.tabs:
-            return
+        if frame is None:
+            if len(self.tabs) > 0:
+                frame = self.tabs[-1].frame
+            else:
+                return
+
+        # draw previous active as grey rectangle
         if self.active:
-            self.tabs[self.active].config(relief=tk.SUNKEN, state=tk.NORMAL)
+            if self.active == frame:
+                return
+            index = self.tab_index_by_frame(self.active)
+            self.draw_tab(index, False)
             self.active.pack_forget()
         frame.pack(side=tk.BOTTOM, expand=tk.YES, fill=tk.BOTH)
-        self.tabs[frame].config(relief=tk.FLAT, state=tk.DISABLED)
         self.active = frame
+        # draw current active as white button
+        index = self.tab_index_by_frame(frame)
+        self.draw_tab(index, True)
+
+    def on_clicked(self, evt):
+        clicked = self.top.find_closest(evt.x, evt.y)
+        for t in self.tabs:
+            shapes = [t.caption_id, t.shape_id]
+            if any(i in shapes for i in clicked):
+                return self.switch_tab(t.frame)
+
+    def draw_tab(self, index, is_active):
+        # draw shape
+        tab = self.tabs[index]
+        self.top.delete(tab.shape_id)  # delete old shape
+        if is_active:
+            # create new shape
+            if index == 0:
+                x0 = TabBarFrame.MARGIN
+                y0 = TabBarFrame.MARGIN
+                points = [(x0, y0)]      # point 1 (top-left corner)
+                x0 += TabBarFrame.TAB_W
+                points.append((x0, y0))  # point 2
+                y0 += TabBarFrame.TAB_H
+                points.append((x0, y0))  # point 3
+                x0 = self.winfo_width() - TabBarFrame.MARGIN - 1  # can't be used in __init__()
+                points.append((x0, y0))  # point 4
+                y0 += TabBarFrame.FOOTER_H
+                points.append((x0, y0))  # point 5
+                x0 = TabBarFrame.MARGIN
+                points.append((x0, y0))  # point 6
+                tab.shape_id = self.top.create_polygon(*points, outline='black', fill='')
+            else:
+                x0 = TabBarFrame.MARGIN + index * TabBarFrame.TAB_W
+                y0 = TabBarFrame.MARGIN
+                points = [(x0, y0)]      # point 1 (top-left corner)
+                x0 += TabBarFrame.TAB_W
+                points.append((x0, y0))  # point 2
+                y0 += TabBarFrame.TAB_H
+                points.append((x0, y0))  # point
+                x0 = self.winfo_width() - TabBarFrame.MARGIN - 1
+                points.append((x0, y0))  # point
+                y0 += TabBarFrame.FOOTER_H
+                points.append((x0, y0))  # point
+                x0 = TabBarFrame.MARGIN
+                points.append((x0, y0))  # point
+                y0 -= TabBarFrame.FOOTER_H
+                points.append((x0, y0))  # point
+                x0 = TabBarFrame.MARGIN + index * TabBarFrame.TAB_W
+                points.append((x0, y0))  # point
+                tab.shape_id = self.top.create_polygon(*points, outline='black', fill='')
+        else:
+            x0 = TabBarFrame.MARGIN + index * TabBarFrame.TAB_W
+            y0 = TabBarFrame.MARGIN
+            x1 = x0 + TabBarFrame.TAB_W
+            y1 = y0 + TabBarFrame.TAB_H
+            tab.shape_id = self.top.create_rectangle(x0, y0, x1, y1, fill='grey')
+        # draw text
+        if tab.caption_id == 0:
+            btn_width = TabBarFrame.TAB_W - TabBarFrame.PADDING * 2
+            if tab.has_close_button():
+                btn_width -= TabBarFrame.CLOSE_W
+            req_width = TabBarFrame.text_font.measure(tab.caption)
+            x = TabBarFrame.MARGIN + index * TabBarFrame.TAB_W
+            y = TabBarFrame.MARGIN
+            center_pos = (x+btn_width/2+TabBarFrame.PADDING, y+TabBarFrame.TAB_H/2)
+            if req_width > btn_width:
+                caption = '%s...' % self.sub_str_by_width(tab.caption, btn_width)
+                tab.caption_id = self.top.create_text(*center_pos, text=caption)
+                self.enable_tip(tab)
+            else:
+                tab.caption_id = self.top.create_text(*center_pos, text=tab.caption)
+        else:
+            self.top.tag_lower(tab.shape_id, tab.caption_id)
+        # draw close button
+        if tab.need_button():
+            x = TabBarFrame.MARGIN + (index+1) * TabBarFrame.TAB_W
+            y = TabBarFrame.MARGIN
+            center_pos = (x-TabBarFrame.CLOSE_W/2, y+TabBarFrame.TAB_H/2)
+            tab.close_btn = self.top.create_text(*center_pos, text='X')
+            self.top.tag_bind(tab.close_btn, '<ButtonPress>', lambda e: self.remove(tab.frame))
+
+    def sub_str_by_width(self, text, width):
+        width -= self.text_font.measure('...')  # subtract "..." in advance
+        for i in range(len(text), 0, -1):
+            w = self.text_font.measure(text[:i])
+            if width > w:
+                return text[:i]
+        return ''
+
+    def enable_tip(self, tab):
+        self.tip_wnd = None
+        def show_tip(evt):
+            self.tip_wnd = tk.Toplevel(self.top)
+            self.tip_wnd.wm_overrideredirect(True)  # remove window title bar
+            label = tk.Label(self.tip_wnd, text=tab.caption, justify=tk.LEFT)
+            label.pack(ipadx=5)
+            x, y = evt.x_root, evt.y_root
+            w, h = label.winfo_reqwidth(), label.winfo_reqheight()
+            sw, sh = label.winfo_screenwidth(), label.winfo_screenheight()
+            offset = 20
+            if x + w + offset > sw:  # if reach beyond the right border
+                x -= w + offset*2    # place tip to the left of widget
+            if y + h + offset > sh:  # if reach beyond the bottom border
+                y -= h + offset*2    # place tip to the top of widget
+            self.tip_wnd.wm_geometry("+%d+%d" % (x+offset, y+offset))
+        def hide_tip(evt):
+            if self.tip_wnd:
+                self.tip_wnd.destroy()
+        self.top.tag_bind(tab.caption_id, "<Enter>", show_tip)
+        self.top.tag_bind(tab.caption_id, "<Leave>", hide_tip)
 
 
 class QueryWord(tk.Frame):
@@ -242,6 +422,7 @@ class QueryWord(tk.Frame):
         self._keyword = tk.StringVar()
         e = tk.Entry(frm, textvariable=self._keyword)
         e.pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
+        entry_add_hint(e, u'<码或词>')
         self._btn = tk.Button(frm, text='Query', command=master.master.on_query_)
         self._btn.pack(side=tk.LEFT)
         #
@@ -295,8 +476,12 @@ class InsertWord(tk.Frame):
         frm.pack(side=tk.TOP, fill=tk.X, expand=tk.NO, padx=5, pady=5)
         self._new_code = tk.StringVar()
         self._new_word = tk.StringVar()
-        tk.Entry(frm, textvariable=self._new_code, width=12).pack(side=tk.LEFT)
-        tk.Entry(frm, textvariable=self._new_word).pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
+        e = tk.Entry(frm, textvariable=self._new_code, width=12)
+        e.pack(side=tk.LEFT)
+        entry_add_hint(e, u'<码>')
+        e = tk.Entry(frm, textvariable=self._new_word)
+        e.pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
+        entry_add_hint(e, u'<词>')
         tk.Button(frm, text='Insert', command=self.insert_new_word)\
             .pack(side=tk.LEFT)
         #
@@ -339,6 +524,10 @@ class InsertWord(tk.Frame):
     def on_tree_delete_(self, evt):
         selected = self._words.selection()
         self._words.delete(*selected)
+
+    def clear_input(self):
+        self._new_word.set('')
+        self._new_code.set('')
 
 
 class RemoveWord(tk.Frame):
@@ -405,7 +594,7 @@ class MainWnd(tk.Tk):
         #
         frm = tk.Frame(self)
         frm.pack(side=tk.TOP, fill=tk.X, expand=tk.NO, padx=5, pady=5)
-        tk.Button(frm, text='Save Database', command=self.save_database)\
+        tk.Button(frm, text='Save to Database', command=self.save_database)\
             .pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
         tk.Button(frm, text='About', command=self.about_info)\
             .pack(side=tk.LEFT, fill=tk.X, expand=tk.YES)
@@ -418,6 +607,7 @@ class MainWnd(tk.Tk):
         self._database.save_data(trash_indices, newbie_values)
         self._remover.clear_table()
         self._inserter.clear_table()
+        self._inserter.clear_input()
 
     def about_info(self):
         tkMessageBox.showinfo('ZhengMa', '''
