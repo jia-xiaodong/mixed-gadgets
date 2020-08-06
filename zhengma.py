@@ -218,6 +218,7 @@ class TabBarFrame(tk.Frame):
     text_font = None
 
     def __init__(self, master=None, *a, **kw):
+        self.has_exit = kw.pop('exit', False)
         tk.Frame.__init__(self, master, *a, **kw)
         self.tabs = []
         self.active = None
@@ -244,7 +245,7 @@ class TabBarFrame(tk.Frame):
         @param frame is an instance of tk.Frame class
         """
         frame.pack_forget()  # hide on init
-        self.tabs.append(TabBarTab(caption, frame))
+        self.tabs.append(TabBarTab(caption, frame, self.has_exit))
         if len(self.tabs) == 1:
             self.event_generate('<Map>')
         else:
@@ -436,7 +437,8 @@ class QueryWord(tk.Frame):
         tree.heading('#1', text='码')
         tree.heading('#2', text='字')
         tree.column('#1', width=150)
-        tree.bind('<Key-Delete>', self.on_tree_delete_)
+        for key in ['<Key-Delete>', '<Key-BackSpace>']:
+            tree.bind(key, self.on_tree_delete_)
         self._words = tree
 
     def get_keyword(self):
@@ -495,7 +497,8 @@ class InsertWord(tk.Frame):
         tree.heading('#1', text='码')
         tree.heading('#2', text='字')
         tree.column('#1', width=150)
-        tree.bind('<Key-Delete>', self.on_tree_delete_)
+        for key in ['<Key-Delete>', '<Key-BackSpace>']:
+            tree.bind(key, self.on_tree_delete_)
         self._words = tree
 
     def insert_new_word(self):
@@ -543,7 +546,8 @@ class RemoveWord(tk.Frame):
         tree.heading('#1', text='码')
         tree.heading('#2', text='字')
         tree.column('#1', width=150)
-        tree.bind('<Key-Delete>', self.on_tree_delete_)
+        for key in ['<Key-Delete>', '<Key-BackSpace>']:
+            tree.bind(key, self.on_tree_delete_)
         self._words = tree
 
     def set_table(self, values):
