@@ -10,14 +10,20 @@ Wed, Mar 6, 2019
 """
 
 
-import Tkinter as tk
-import ttk
-import tkFileDialog, tkMessageBox
-import PIL.Image as Image
-import PIL.ImageTk as ImageTk
-import PIL.ImageFilter as ImageFilter
+try:
+    import Tkinter as tk
+    import ttk
+    import tkFileDialog as filedialog
+    import tkMessageBox as messagebox
+except:
+    import tkinter as tk
+    from tkinter import filedialog
+    from tkinter import messagebox
+    from tkinter import ttk
+
+from PIL import Image, ImageFilter, ImageTk
 import os, shutil
-import Queue, threading
+import queue, threading
 from sys import platform
 
 
@@ -102,7 +108,7 @@ class PhotoCrop(tk.Frame):
         options = {}
         if self.filename is not None:
             options['initialdir'] = os.path.dirname(self.filename)
-        filename = tkFileDialog.askopenfilename(**options)
+        filename = filedialog.askopenfilename(**options)
         if len(filename) == 0:
             return
         try:
@@ -149,7 +155,7 @@ class PhotoCrop(tk.Frame):
         old_w, old_h = old_size
         canvas_w, canvas_h = canvas_size
         new_w = canvas_w
-        new_h = new_w * old_h / old_w
+        new_h = new_w * old_h // old_w
         if new_h > canvas_h:
             new_h = canvas_h
             new_w = new_h * old_w / old_h
@@ -203,7 +209,7 @@ class PhotoCrop(tk.Frame):
             heading, extension = os.path.splitext(self.filename)
             if len(self.extension.get()) > 0:
                 extension = self.extension.get()
-            filename = tkFileDialog.asksaveasfilename(initialfile=os.path.basename(heading), defaultextension=extension)
+            filename = filedialog.asksaveasfilename(initialfile=os.path.basename(heading), defaultextension=extension)
             if len(filename) == 0:
                 return
             clip = self.image_src.crop((x, y, x+w, y+h))
@@ -355,7 +361,7 @@ class SdrClean(tk.Frame):
         self._dir = None
 
     def specify_folder(self):
-        dir = tkFileDialog.askdirectory()
+        dir = filedialog.askdirectory()
         if len(dir) == 0:
             return
         self._dir = dir
@@ -366,7 +372,8 @@ class SdrClean(tk.Frame):
         danglings = [d for d in all_dirs if d not in all_files]
         self.listbox.delete(0, tk.END)
         if len(danglings) > 0:
-            map(lambda i: self.listbox.insert(tk.END, i), danglings)
+            for dangling in danglings:
+                self.listbox.insert(tk.END, dangling)
         elif len(all_dirs) > 0: # no dangling .sdr folder, but it's kindle document indeed.
             self.listbox_show_clear()
         else:
@@ -376,7 +383,8 @@ class SdrClean(tk.Frame):
         if not self.is_sdr_list():
             return
         try:
-            map(lambda i: shutil.rmtree('%s.sdr' % i), self.listbox.get(0, tk.END))
+            for dangling in self.listbox.get(0, tk.END):
+                shutil.rmtree('%s.sdr' % dangling)
             self.listbox.delete(0, tk.END)
             self.listbox_show_clear()
         except Exception as e:
@@ -438,7 +446,7 @@ class PhotoGrey(tk.Frame):
         self.thread_queue = None
 
     def browse_dir(self):
-        name = tkFileDialog.askdirectory()
+        name = filedialog.askdirectory()
         if len(name) == 0:
             return
         self.dir.set(name)
@@ -446,7 +454,7 @@ class PhotoGrey(tk.Frame):
     def convert(self):
         dir = self.dir.get()
         if len(os.listdir(dir)) == 0:
-            tkMessageBox.showwarning('Greyscale', 'No images found!')
+            messagebox.showwarning('Greyscale', 'No images found!')
             return
 
         self.progress.set(0)
@@ -481,7 +489,7 @@ class PhotoGrey(tk.Frame):
                 self.after(100, self.listen_for_progress)
             else:
                 self.btn.config(state=tk.NORMAL)
-                tkMessageBox.showinfo('Photo Tool', 'All work is done.')
+                messagebox.showinfo('Photo Tool', 'All work is done.')
                 self.progress.set(0)
 
     @staticmethod
