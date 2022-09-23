@@ -40,6 +40,8 @@ class MainUI(tk.Tk):
 def main():
     parser = argparse.ArgumentParser(description='xxx')
     parser.add_argument('-c', '--cmd')  # publish platforms
+    parser.add_argument('-x', '--pos_x')  # screen position x
+    parser.add_argument('-y', '--pos_y')  # screen position y
     args, unknown_args = parser.parse_known_args()
     # args, unknown_args = parser.parse_known_args(['-c', 'C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\resources\\app\\layout\\handle.exe',
     #                           '-a',   # Dump all handle information
@@ -52,6 +54,13 @@ def main():
     cmdline = [args.cmd]
     cmdline.extend(unknown_args)
     root = MainUI(cmdline)
+    if args.pos_x is not None and args.pos_y is not None:
+        try:
+            x = float(args.pos_x)
+            y = float(args.pos_y)
+            root.geometry('+%d+%d' % (x, y))
+        except:
+            pass
     root.title(os.path.basename(args.cmd))
     root.mainloop()
 
