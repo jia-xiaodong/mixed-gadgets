@@ -12,13 +12,20 @@ from tkinter import messagebox
 class MainUI(tk.Tk):
     def __init__(self, cmd):
         tk.Tk.__init__(self)
-        self._output = tk.StringVar(value='Please wait...')
+        self._output = tk.StringVar()
         tk.Label(self, textvariable=self._output).pack(expand=True, fill=tk.BOTH, padx=5, pady=5)
         self._is_stop = False
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
         self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                                       creationflags=subprocess.CREATE_NO_WINDOW)  # hide console window
         threading.Thread(target=self.wait_result).start()
+        self._seconds = 0
+        self._timer_task = self.after(1000, self.update_timer)
+
+    def update_timer(self):
+        self._seconds += 1
+        self._output.set('Please wait ... [%d]' % self._seconds)
+        self._timer_task = self.after(1000, self.update_timer)
 
     def on_closing(self):
         if self._is_stop or messagebox.askokcancel('Quiz', 'Are you sure to exit?'):
@@ -31,6 +38,7 @@ class MainUI(tk.Tk):
         while not self._is_stop:
             try:
                 out, err = self._proc.communicate(timeout=1)
+                self.after_cancel(self._timer_task)
                 self._output.set(out)
                 self._is_stop = True
             except subprocess.TimeoutExpired:
