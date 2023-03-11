@@ -1,17 +1,20 @@
 #!usr/bin/env python
 # -*- coding:utf-8 -*-
 
-import Tkinter as tk
-import tkFileDialog
-import tkMessageBox
-import ttk
+import tkinter as tk
+from tkinter import ttk
+from tkinter import filedialog
+from tkinter import messagebox
 import os
-import urllib2
-import Queue
+from urllib.request import urlopen
+from urllib.request import Request
+import queue
 import threading
 from hashlib import md5
 import time
 
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
 
 def url_join(base, tail):
     if tail.startswith('/'):
@@ -112,7 +115,9 @@ class ThreadDownloader(threading.Thread):
 
     def run(self):
         try:
-            ifo = urllib2.urlopen(self._url, timeout=self._timeout)
+            user_agent = {'User-Agent': 'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_8; en-us) AppleWebKit/534.50'}
+            req = Request(self._url, headers=user_agent, unverifiable=True)
+            ifo = urlopen(req, timeout=self._timeout)
             content = ifo.read()
             ifo.close()
             self._size = len(content)
@@ -149,12 +154,13 @@ class ThreadDownloader(threading.Thread):
 class Main(tk.Frame):
     WND_TITLE = 'TS Merger'
     INDEX_FILE = 'm3u8.txt'
+    INDEX_FILE2 = 'index.m3u8'
 
     def __init__(self, master, *a, **kw):
         tk.Frame.__init__(self, master, *a, **kw)
         #
-        self._msg_queue = Queue.Queue()
-        self._job_queue = Queue.Queue()
+        self._msg_queue = queue.Queue()
+        self._job_queue = queue.Queue()
         self._running = False
         # step 1
         group = tk.LabelFrame(self, text='Step 1: M3U8')
@@ -190,7 +196,8 @@ class Main(tk.Frame):
         xscroll = tk.Scrollbar(group, orient=tk.HORIZONTAL, command=self._segments.xview)
         xscroll.pack(side=tk.TOP, expand=tk.YES, fill=tk.X)
         self._segments['xscrollcommand'] = xscroll.set
-        self._segments.bind('<Key-Delete>', self.onkey_tree_delete)
+        self._segments.bind('<Key-K>', self.onkey_tree_delete)
+        self._segments.bind('<1>', self.onkey_tree_click)
         self._segments.heading('sn', text='SN')
         self._segments.heading('url', text='URL')  # '#0' column is icon and it's hidden here
         self._segments.heading('state', text='State')    # we only need two columns: '#1' and '#2'
@@ -230,7 +237,7 @@ class Main(tk.Frame):
         self.init_stats_tip()
 
     def onclick_browse_tmp(self):
-        adir = tkFileDialog.askdirectory()
+        adir = filedialog.askdirectory()
         if adir == '':
             return
         self._tmp_dir.set(adir)
@@ -246,7 +253,7 @@ class Main(tk.Frame):
             return
         try:
             # download
-            ifo = urllib2.urlopen(index_url, timeout=3)
+            ifo = urllib.urlopen(index_url, timeout=3)
             content = ifo.read()
             ifo.close()
             # write to local disk
@@ -269,6 +276,8 @@ class Main(tk.Frame):
             return
         #
         index_file = os.path.join(cache_dir, Main.INDEX_FILE)
+        if not os.path.exists(index_file):
+            index_file = os.path.join(cache_dir, Main.INDEX_FILE2)
         with open(index_file, 'r') as ifo:
             self.fill_in_listbox(index_url, ifo.readlines())
 
@@ -362,7 +371,7 @@ class Main(tk.Frame):
         try:
             progress = self._msg_queue.get(False)  # non-block mode in UI thread
             self._progress.set(progress)
-        except Queue.Empty:
+        except queue.Empty:
             pass
         finally:
             if self._running:
@@ -370,10 +379,10 @@ class Main(tk.Frame):
             else:
                 self._progress.set(self._progressbar['maximum'])
                 self._btn.config(text='Download')
-                tkMessageBox.showinfo(Main.WND_TITLE, 'All segments are downloaded.')
+                messagebox.showinfo(Main.WND_TITLE, 'All segments are downloaded.')
 
     def onclick_save_as(self):
-        filename = tkFileDialog.asksaveasfilename(defaultextension='.mp4')
+        filename = filedialog.asksaveasfilename(defaultextension='.mp4')
         if filename == '':
             return
         self._output.set(filename)
@@ -386,7 +395,7 @@ class Main(tk.Frame):
         if out == '':
             return
         if os.path.isfile(out) and \
-                not tkMessageBox.askokcancel(Main.WND_TITLE,
+                not messagebox.askokcancel(Main.WND_TITLE,
                                              'The file already exists.\nDo you want to overwrite it?'):
             return
         #
@@ -400,9 +409,9 @@ class Main(tk.Frame):
                 ofo.write(ifo.read())
                 ifo.close()
             ofo.close()
-            tkMessageBox.showinfo(Main.WND_TITLE, 'Merge is done.')
+            messagebox.showinfo(Main.WND_TITLE, 'Merge is done.')
         except Exception as e:
-            tkMessageBox.showerror(Main.WND_TITLE, str(e))
+            messagebox.showerror(Main.WND_TITLE, str(e))
 
     def init_stats_tip(self):
         self._stats = DownloadStats(3)  # refresh data in every 3 seconds
@@ -478,9 +487,17 @@ class Main(tk.Frame):
             msg = 'Are you sure to delete\n\n%s\n\n?' % selected[0]
         else:
             msg = 'Are you sure to delete %d jobs?' % num
-        if not tkMessageBox.askokcancel(Main.WND_TITLE, msg):
+        if not messagebox.askokcancel(Main.WND_TITLE, msg):
             return
         self._segments.delete(*selected)
+
+    def onkey_tree_click(self, evt):
+        selected = self._segments.selection()
+        if len(selected) == 0:
+            return
+        _, url, _ = self._segments.item(selected[0], 'values')
+        self.clipboard_clear()
+        self.clipboard_append(url)
 
     def fill_in_listbox(self, index_url, lines):
         """
@@ -518,7 +535,7 @@ class Main(tk.Frame):
         num = len(videos)
         if num == 0:
             return
-        if not tkMessageBox.askokcancel(Main.WND_TITLE, 'Are you sure to delete %d files?' % num):
+        if not messagebox.askokcancel(Main.WND_TITLE, 'Are you sure to delete %d files?' % num):
             return
         os.chdir(tmp)
         for i in videos:
@@ -527,38 +544,6 @@ class Main(tk.Frame):
             except Exception as e:
                 print(e)
         os.remove(Main.INDEX_FILE)
-
-
-def test():
-    from Crypto.Cipher import AES
-
-    key = '1d70e45cc9be89b8'
-    try:
-        #
-        dir_encoded = '/Users/xiaodong/UserData/pycharm/output/encoded'
-        videos = [i for i in os.listdir(dir_encoded) if i.endswith('.ts')]
-        videos.sort()
-        #
-        aes = AES.new(key, AES.MODE_CBC, key)
-        #
-        dir_tmp = '/Users/xiaodong/UserData/pycharm/output'
-        os.chdir(dir_tmp)
-        for i in videos:
-            out = os.path.join(dir_tmp, i)
-            with open('encoded/%s' % i, 'rb') as ifo, open(out, 'wb') as ofo:
-                content = ifo.read()
-                content = aes.decrypt(content)
-                # Because AES encoding requires data length is multiples of 16-byte.
-                # So every file has trailing padding bytes from 1 byte to 16 bytes. For
-                # example, [1], [2,2], [6,6,6,6,6,6]
-                # These padding bytes must be stripped away before merge.
-                padding_size = ord(content[-1])
-                if padding_size > 0:
-                    content = content[:-padding_size]
-                ofo.write(content)
-        tkMessageBox.showinfo(Main.WND_TITLE, 'Merge is done.')
-    except Exception as e:
-            tkMessageBox.showerror(Main.WND_TITLE, str(e))
 
 
 def main():
