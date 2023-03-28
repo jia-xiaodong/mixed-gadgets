@@ -372,6 +372,7 @@ class SdrClean(tk.Frame):
         danglings = [d for d in all_dirs if d not in all_files]
         self.listbox.delete(0, tk.END)
         if len(danglings) > 0:
+            danglings.sort()
             for dangling in danglings:
                 self.listbox.insert(tk.END, dangling)
         elif len(all_dirs) > 0: # no dangling .sdr folder, but it's kindle document indeed.
