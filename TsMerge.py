@@ -46,6 +46,11 @@ def url_basename(url):
     return url[start+1:]
 
 
+def new_request(url):
+    user_agent = {'User-Agent': 'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_8; en-us) AppleWebKit/534.50'}
+    return Request(url, headers=user_agent, unverifiable=True)
+
+
 class RepeatTimer:
     """
     Mimic the behavior (interface) of threading.Timer.
@@ -127,9 +132,7 @@ class ThreadDownloader(threading.Thread):
 
     def run(self):
         try:
-            user_agent = {'User-Agent': 'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_8; en-us) AppleWebKit/534.50'}
-            req = Request(self._url, headers=user_agent, unverifiable=True)
-            ifo = urlopen(req, timeout=self._timeout)
+            ifo = urlopen(new_request(self._url), timeout=self._timeout)
             content = ifo.read()
             ifo.close()
             global global_cipher
@@ -269,14 +272,15 @@ class Main(tk.Frame):
             return
         try:
             # download
-            ifo = urlopen(index_url, timeout=timeout)
+            ifo = urlopen(new_request(index_url), timeout=timeout)
             content = ifo.read()
             ifo.close()
             # write to local disk
             dst = os.path.join(cache_dir, Main.INDEX_FILE)
-            ofo = open(dst, 'w')
+            ofo = open(dst, 'wb')
             ofo.write(content)
             ofo.close()
+            content = content.decode('utf8')
             lines = content.split('\n')
             self.check_encryption(lines, index_url, cache_dir)
             self.fill_in_listbox(index_url, lines)
@@ -588,10 +592,10 @@ class Main(tk.Frame):
                 ifo.close
             else:
                 key_url = '{}{}'.format(domain, link)
-                ifo = urlopen(key_url, timeout=self._timeout.get())
+                ifo = urlopen(new_request(key_url), timeout=self._timeout.get())
                 content = ifo.read()
                 ifo.close()
-                ofo = open(key_file, 'w')
+                ofo = open(key_file, 'wb')
                 ofo.write(content)
                 ofo.close()
             global_cipher = AES.new(content, AES.MODE_CBC, content)
