@@ -12,9 +12,16 @@ import queue
 import threading
 from hashlib import md5
 import time
+import re
+from Crypto.Cipher import AES
+
 
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
+
+
+global_cipher = None
+
 
 def url_join(base, tail):
     if tail.startswith('/'):
@@ -32,6 +39,11 @@ def url_domain(url):
 def url_directory(url):
     start = url.rfind('/')
     return url[:start]
+
+
+def url_basename(url):
+    start = url.rfind('/')
+    return url[start+1:]
 
 
 class RepeatTimer:
@@ -120,6 +132,9 @@ class ThreadDownloader(threading.Thread):
             ifo = urlopen(req, timeout=self._timeout)
             content = ifo.read()
             ifo.close()
+            global global_cipher
+            if global_cipher is not None:
+                content = global_cipher.decrypt(content)
             self._size = len(content)
             if self.file_exists(content):
                 return
@@ -247,13 +262,14 @@ class Main(tk.Frame):
         index_url = index_url.strip()
         if len(index_url) == 0:
             return
+        timeout = self._timeout.get()
         cache_dir = self._tmp_dir.get()
         cache_dir = cache_dir.strip()
         if len(cache_dir) == 0:
             return
         try:
             # download
-            ifo = urllib.urlopen(index_url, timeout=3)
+            ifo = urlopen(index_url, timeout=timeout)
             content = ifo.read()
             ifo.close()
             # write to local disk
@@ -261,7 +277,9 @@ class Main(tk.Frame):
             ofo = open(dst, 'w')
             ofo.write(content)
             ofo.close()
-            self.fill_in_listbox(index_url, content.split('\n'))
+            lines = content.split('\n')
+            self.check_encryption(lines, index_url, cache_dir)
+            self.fill_in_listbox(index_url, lines)
         except Exception as e:
             print(e)
 
@@ -279,7 +297,9 @@ class Main(tk.Frame):
         if not os.path.exists(index_file):
             index_file = os.path.join(cache_dir, Main.INDEX_FILE2)
         with open(index_file, 'r') as ifo:
-            self.fill_in_listbox(index_url, ifo.readlines())
+            lines = ifo.readlines()
+            self.check_encryption(lines, index_url, cache_dir)
+            self.fill_in_listbox(index_url, lines)
 
     def onclick_download_segments(self):
         urls = self._segments.get_children()
@@ -544,6 +564,39 @@ class Main(tk.Frame):
             except Exception as e:
                 print(e)
         os.remove(Main.INDEX_FILE)
+
+    def check_encryption(self, lines, index_url, cache_dir):
+        global global_cipher
+        global_cipher = None
+        link = None
+        pattern = r'#EXT-X-KEY:METHOD=AES-128,URI="(?P<link>.+)"'
+        regex = re.compile(pattern)
+        for line in lines:
+            match = regex.search(line)
+            if match is not None:
+                link = match.group('link')
+                break
+        if link is None:
+            return
+        try:
+            domain = url_domain(index_url)
+            base = url_basename(link)
+            key_file = os.path.join(cache_dir, base)
+            if os.path.exists(key_file):
+                ifo = open(key_file, 'rb')
+                content = ifo.read()
+                ifo.close
+            else:
+                key_url = '{}{}'.format(domain, link)
+                ifo = urlopen(key_url, timeout=self._timeout.get())
+                content = ifo.read()
+                ifo.close()
+                ofo = open(key_file, 'w')
+                ofo.write(content)
+                ofo.close()
+            global_cipher = AES.new(content, AES.MODE_CBC, content)
+        except Exception as e:
+            print(e)
 
 
 def main():
