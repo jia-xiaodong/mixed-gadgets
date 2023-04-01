@@ -183,21 +183,21 @@ class MainWnd(tk.Frame):
         # row 1 -- step 2
         frame = tk.Frame(group, padx=5, pady=5)
         frame.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
-        self._segments = ttk.Treeview(frame, selectmode=tk.EXTENDED, show='headings', columns=('sn', 'url', 'state'))
-        self._segments.pack(side=tk.LEFT, expand=tk.YES, fill=tk.BOTH)
-        yscroll = tk.Scrollbar(frame, orient=tk.VERTICAL, command=self._segments.yview)
+        self._links = ttk.Treeview(frame, selectmode=tk.EXTENDED, show='headings', columns=('sn', 'url', 'state'))
+        self._links.pack(side=tk.LEFT, expand=tk.YES, fill=tk.BOTH)
+        yscroll = tk.Scrollbar(frame, orient=tk.VERTICAL, command=self._links.yview)
         yscroll.pack(side=tk.RIGHT, expand=tk.NO, fill=tk.Y)
-        self._segments['yscrollcommand'] = yscroll.set
-        xscroll = tk.Scrollbar(group, orient=tk.HORIZONTAL, command=self._segments.xview)
+        self._links['yscrollcommand'] = yscroll.set
+        xscroll = tk.Scrollbar(group, orient=tk.HORIZONTAL, command=self._links.xview)
         xscroll.pack(side=tk.TOP, expand=tk.NO, fill=tk.X)
-        self._segments['xscrollcommand'] = xscroll.set
-        self._segments.bind('<Key-K>', self.onkey_tree_delete)
-        self._segments.bind('<1>', self.onkey_tree_click)
-        self._segments.heading('sn', text='SN')
-        self._segments.heading('url', text='URL')  # '#0' column is icon and it's hidden here
-        self._segments.heading('state', text='State')    # we only need two columns: '#1' and '#2'
-        self._segments.column('sn', width=30, stretch=False)
-        self._segments.column('state', width=50, stretch=False, anchor=tk.CENTER)
+        self._links['xscrollcommand'] = xscroll.set
+        self._links.bind('<Key-K>', self.onkey_tree_delete)
+        self._links.bind('<1>', self.onkey_tree_click)
+        self._links.heading('sn', text='SN')
+        self._links.heading('url', text='URL')  # '#0' column is icon and it's hidden here
+        self._links.heading('state', text='State')    # we only need two columns: '#1' and '#2'
+        self._links.column('sn', width=30, stretch=False)
+        self._links.column('state', width=50, stretch=False, anchor=tk.CENTER)
         #
         frame = tk.Frame(group)
         frame.pack(side=tk.TOP, expand=tk.NO, fill=tk.BOTH)
@@ -217,6 +217,9 @@ class MainWnd(tk.Frame):
         tk.Spinbox(frame, textvariable=self._timeout, from_=3, to=9, width=2).pack(side=tk.LEFT)
         self._btn = tk.Button(frame, text='Download Images', command=self.onclick_download_segments)
         self._btn.pack(side=tk.LEFT)
+        #
+        self._auto = tk.BooleanVar(value=True)
+        tk.Checkbutton(frame, text='Auto', variable=self._auto).pack(side=tk.RIGHT)
 
         self._handler = WebPageHandler()
         self._job_queue = queue.Queue()
@@ -238,25 +241,25 @@ class MainWnd(tk.Frame):
         if not job.is_successful():
             messagebox.showerror(MainWnd.WND_TITLE, 'Failed to download web page')
             return
-        # populate UI with image URLs
-        links = self._handler.feed_file(job.file_path())
-        self._segments.delete(*self._segments.get_children())
-        for i, url in enumerate(links, start=1):
-            iid = 'I%04d' % i
-            self._segments.insert('', tk.END, iid=iid, values=(i, url, ''))
+        self.load_links(job.file_path())
 
     def load_local_web_page(self):
         dst = self._tmp_dir.get().strip()
         if len(dst) == 0:
             return
-        web_page = os.path.join(dst, MainWnd.WEB_PAGE)
+        web_page = self.web_page()
         if not os.path.exists(web_page):
             return
-        links = self._handler.feed_file(web_page)
-        self._segments.delete(*self._segments.get_children())
+        self.load_links(web_page)
+
+    def load_links(self, file):
+        links = self._handler.feed_file(file)
+        self._links.delete(*self._links.get_children())
         for i, url in enumerate(links, start=1):
             iid = 'I%04d' % i
-            self._segments.insert('', tk.END, iid=iid, values=(i, url, ''))
+            self._links.insert('', tk.END, iid=iid, values=(i, url, ''))
+        if self._auto.get():
+            self.onclick_download_segments()
 
     def paste_from_clipboard(self):
         url = self.clipboard_get().strip()
@@ -269,14 +272,33 @@ class MainWnd(tk.Frame):
             return
         self._tmp_dir.set(a_dir)
 
-    def onkey_tree_delete(self):
-        pass
+    def onkey_tree_delete(self, _):
+        # keep treeview items intact when downloading, because jobs are in queue.
+        if self._running:
+            return
+        #
+        selected = self._links.selection()
+        num = len(selected)
+        if num == 0:
+            return
+        if num == 1:
+            msg = 'Are you sure to delete\n\n%s\n\n?' % selected[0]
+        else:
+            msg = 'Are you sure to delete %d jobs?' % num
+        if not messagebox.askokcancel(Main.WND_TITLE, msg):
+            return
+        self._links.delete(*selected)
 
     def onkey_tree_click(self, _):
-        pass
+        selected = self._links.selection()
+        if len(selected) == 0:
+            return
+        _, url, _ = self._links.item(selected[0], 'values')
+        self.clipboard_clear()
+        self.clipboard_append(url)
 
     def onclick_download_segments(self):
-        urls = self._segments.get_children()
+        urls = self._links.get_children()
         if len(urls) == 0:
             return
         #
@@ -294,7 +316,7 @@ class MainWnd(tk.Frame):
             self.clear_queue()
             for i in urls:
                 self._job_queue.put(i)
-                self._segments.set(i, column='state', value='')
+                self._links.set(i, column='state', value='')
             #
             self._progress.set(0)
             self._progressbar.config(maximum=self._job_queue.qsize())
@@ -314,15 +336,18 @@ class MainWnd(tk.Frame):
         """
         update UI
         """
+        if not self._running:
+            return
+
         finished = 0
         for i in self._downloaders[:]:
             if i.isAlive():
                 continue
             # visualize task state: completion or failure
             if i.is_successful():
-                self._segments.delete(i.iid)
+                self._links.delete(i.iid)
             else:
-                self._segments.set(i.iid, column='state', value='X')
+                self._links.set(i.iid, column='state', value='X')
             self._downloaders.remove(i)
             finished += 1
         if finished > 0:
@@ -337,14 +362,14 @@ class MainWnd(tk.Frame):
             # it is str of type now when being retrieved.
             #
             # In short, be careful of below 'sn' in this app.
-            sn, url, state = self._segments.item(iid, 'values')
+            sn, url, state = self._links.item(iid, 'values')
             _, ext = url_split(url)
             dst = os.path.join(self._tmp_dir.get(), 'img_%04d.%s' % (int(sn), ext))
             job = ThreadDownloader(url, dst, self._timeout.get())
             job.iid = iid  # attach a temporary attribute
             self._downloaders.append(job)
             job.start()
-            self._segments.set(iid, column='state', value='...')
+            self._links.set(iid, column='state', value='...')
         #
         if len(self._downloaders) > 0:
             self.after(100, self.update_progress)
@@ -355,6 +380,12 @@ class MainWnd(tk.Frame):
         self._running = False
         self._btn.config(text='Download')
         messagebox.showinfo(MainWnd.WND_TITLE, 'All segments are downloaded.')
+        if len(self._links.get_children()) == 0:
+            os.remove(self.web_page())
+
+    def web_page(self):
+        dst = self._tmp_dir.get().strip()
+        return os.path.join(dst, MainWnd.WEB_PAGE)
 
 
 def main():
