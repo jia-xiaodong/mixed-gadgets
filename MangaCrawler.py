@@ -9,6 +9,7 @@ import threading
 import queue
 from urllib.request import urlopen
 from urllib.request import Request
+from urllib.parse import quote_plus, urlparse
 from hashlib import md5
 import os
 from enum import Enum
@@ -19,10 +20,24 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 
 def url_split(url):
-    sep = url.rfind('/')
-    name = url[sep+1:]
-    dot = name.rfind('.')
-    return url[:sep], name[:dot], name[dot+1:]
+    parts = urlparse(url)
+    filename = parts.path
+    dot = filename.rfind('.')
+    return filename[:dot], filename[dot+1:]
+
+
+def url_quote(url):
+    parts = urlparse(url)
+    quoted = [parts[0]]
+    quoted.extend(quote_plus(parts[i], safe='/') for i in range(1, len(parts)))
+    result = '{}://{}{}'.format(quoted[0], quoted[1], quoted[2])
+    if len(quoted) > 3 and len(quoted[3]) > 0:
+        result = '{};{}'.format(result, quoted[3])
+    if len(quoted) > 4 and len(quoted[4]) > 0:
+        result = '{}?{}'.format(result, quoted[4])
+    if len(quoted) > 5 and len(quoted[5]) > 0:
+        result = '{}#{}'.format(result, quoted[5])
+    return result
 
 
 class WebPageHandler(HTMLParser):
@@ -215,6 +230,7 @@ class MainWnd(tk.Frame):
             return
         if not os.path.exists(dst):
             os.mkdir(dst)
+        url = url_quote(url)
         job = ThreadDownloader(url, os.path.join(dst, MainWnd.WEB_PAGE), self._timeout.get(), self.on_web_page_downloaded)
         job.start()
 
@@ -322,7 +338,7 @@ class MainWnd(tk.Frame):
             #
             # In short, be careful of below 'sn' in this app.
             sn, url, state = self._segments.item(iid, 'values')
-            _, _, ext = url_split(url)
+            _, ext = url_split(url)
             dst = os.path.join(self._tmp_dir.get(), 'img_%04d.%s' % (int(sn), ext))
             job = ThreadDownloader(url, dst, self._timeout.get())
             job.iid = iid  # attach a temporary attribute
@@ -333,9 +349,12 @@ class MainWnd(tk.Frame):
         if len(self._downloaders) > 0:
             self.after(100, self.update_progress)
         else:
-            self._running = False
-            self._btn.config(text='Download')
-            messagebox.showinfo(MainWnd.WND_TITLE, 'All segments are downloaded.')
+            self.after(100, self.notify_finish)
+
+    def notify_finish(self):
+        self._running = False
+        self._btn.config(text='Download')
+        messagebox.showinfo(MainWnd.WND_TITLE, 'All segments are downloaded.')
 
 
 def main():
