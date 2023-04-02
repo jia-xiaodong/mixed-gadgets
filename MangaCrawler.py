@@ -429,8 +429,8 @@ class MainWnd(tk.Frame):
         self._running = False
         self._btn.config(text='Download')
         if len(self._links.get_children()) == 0:
-            messagebox.showinfo(MainWnd.WND_TITLE, 'All segments are downloaded.')
             os.remove(self.web_page())
+        messagebox.showinfo(MainWnd.WND_TITLE, 'All segments are downloaded.')
 
     def web_page(self):
         dst = self._tmp_dir.get().strip()
