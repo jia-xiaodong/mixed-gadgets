@@ -9,44 +9,43 @@ import threading
 import queue
 from urllib.request import urlopen
 from urllib.request import Request
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote, quote_plus, urlparse
 from hashlib import md5
 import os
 from enum import Enum
 from html.parser import HTMLParser
+import re
 
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
 
 
-def url_split(url):
-    parts = urlparse(url)
-    filename = parts.path
-    dot = filename.rfind('.')
-    return filename[:dot], filename[dot+1:]
+def url_image_name(url):
+    match = re.search(r'/(?P<base>\w+)\.(?P<ext>(jpg|png))', url)
+    if match:
+        return match.group('base'), match.group('ext')
+    return None, None
 
 
 def url_quote(url):
     parts = urlparse(url)
-    quoted = [parts[0]]
-    quoted.extend(quote_plus(parts[i], safe='/') for i in range(1, len(parts)))
+    quoted = [parts.scheme, quote(parts.netloc), quote(parts.path), quote(parts.params),
+              quote_plus(parts.query, safe='='), quote_plus(parts.fragment)]
     result = '{}://{}{}'.format(quoted[0], quoted[1], quoted[2])
     if len(quoted) > 3 and len(quoted[3]) > 0:
-        result = '{};{}'.format(result, quoted[3])
+        result = '{};{}'.format(result, quoted[3])  # params
     if len(quoted) > 4 and len(quoted[4]) > 0:
-        result = '{}?{}'.format(result, quoted[4])
+        result = '{}?{}'.format(result, quoted[4])  # query
     if len(quoted) > 5 and len(quoted[5]) > 0:
-        result = '{}#{}'.format(result, quoted[5])
+        result = '{}#{}'.format(result, quoted[5])  # fragment
     return result
 
 
 class WebPageHandler(HTMLParser):
+    domain_name = None
     def __init__(self, *a, **kw):
-        HTMLParser.__init__(self, *a, **kw)
+        super().__init__(*a, **kw)
         self._images = []
-        self._chapter_pages_found = False
-        self._chapter_page_found = False
-        self._image_found = False
 
     def feed_file(self, web_page_file):
         self._images[:] = []
@@ -55,41 +54,75 @@ class WebPageHandler(HTMLParser):
         self.close()
         return self._images
 
-    def handle_starttag(self, tag, attrs):
-        if not self._chapter_pages_found:
-            if tag == 'div' and self.attr_has(attrs, ('class', 'chapter-pages')):
-                self._chapter_pages_found = True
-        elif not self._chapter_page_found:
-            if tag == 'div' and self.attr_has(attrs, ('class', 'chapter-page')):
-                self._chapter_page_found = True
-        elif tag == 'img' and self.attr_name(attrs, 'src'):
-            self._images.append(self.attr_value(attrs, 'src'))
-
-    def handle_endtag(self, tag):
-        if self._chapter_pages_found and self._chapter_page_found:
-            if tag == 'div':
-                self._chapter_page_found = False
-
     @staticmethod
-    def attr_has(attrs, attr):
+    def attrs_has_attr(attrs, attr):
         for i in attrs:
             if i == attr:
                 return True
         return False
 
     @staticmethod
-    def attr_name(attrs, name):
+    def attrs_has_name(attrs, name):
         for i in attrs:
             if i[0] == name:
                 return True
         return False
 
     @staticmethod
-    def attr_value(attrs, name):
+    def attrs_get_value(attrs, name):
         for i in attrs:
             if i[0] == name:
                 return i[1]
         return None
+
+
+class HachiRawHandler(WebPageHandler):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self._chapter_pages_found = False
+        self._chapter_page_found = False
+        self._image_found = False
+        self.domain_name = 'hachiraw.com'
+
+    def handle_starttag(self, tag, attrs):
+        if not self._chapter_pages_found:
+            if tag == 'div' and self.attrs_has_attr(attrs, ('class', 'chapter-pages')):
+                self._chapter_pages_found = True
+        elif not self._chapter_page_found:
+            if tag == 'div' and self.attrs_has_attr(attrs, ('class', 'chapter-page')):
+                self._chapter_page_found = True
+        elif tag == 'img' and self.attrs_has_name(attrs, 'src'):
+            url = self.attrs_get_value(attrs, 'src')
+            self._images.append(url.strip())
+
+    def handle_endtag(self, tag):
+        if self._chapter_pages_found and self._chapter_page_found:
+            if tag == 'div':
+                self._chapter_page_found = False
+
+
+class ParallelParadiseOnlineHandler(WebPageHandler):
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.domain_name = 'www.parallelparadise.online'
+        self._reading_content_found = False
+        self._page_break_found = False
+
+    def handle_starttag(self, tag, attrs):
+        if not self._reading_content_found:
+            if tag == 'div' and self.attrs_has_attr(attrs, ('class', 'reading-content')):
+                self._reading_content_found = True
+        elif not self._page_break_found:
+            if tag == 'div' and self.attrs_has_attr(attrs, ('class', 'page-break ')):
+                self._page_break_found = True
+        elif tag == 'img' and self.attrs_has_attr(attrs, ('class', 'wp-manga-chapter-img')):
+            url = self.attrs_get_value(attrs, 'src')
+            self._images.append(url.strip())
+
+    def handle_endtag(self, tag):
+        if self._reading_content_found and self._page_break_found:
+            if tag == 'div':
+                self._page_break_found = False
 
 
 class DownloadStatus(Enum):
@@ -178,6 +211,15 @@ class MainWnd(tk.Frame):
         tk.Entry(frame, textvariable=self._tmp_dir).pack(side=tk.LEFT, expand=tk.YES, fill=tk.X)
         tk.Button(frame, text='Save to Dir', command=self.onclick_browse_dir).pack(side=tk.LEFT)
         #
+        frame = tk.Frame(self)
+        frame.pack(side=tk.TOP, expand=tk.NO, fill=tk.BOTH)
+        tk.Label(frame, text='Hanlder:').pack(side=tk.LEFT)
+        self._handlers = dict()
+        for handler in [HachiRawHandler(), ParallelParadiseOnlineHandler()]:
+            self._handlers[handler.domain_name] = handler
+        self._active_handler = tk.StringVar()
+        tk.OptionMenu(frame, self._active_handler, *self._handlers.keys()).pack(side=tk.LEFT)
+        #
         group = tk.LabelFrame(self, text='Links')
         group.pack(side=tk.TOP, expand=tk.YES, fill=tk.BOTH)
         # row 1 -- step 2
@@ -221,7 +263,6 @@ class MainWnd(tk.Frame):
         self._auto = tk.BooleanVar(value=True)
         tk.Checkbutton(frame, text='Auto', variable=self._auto).pack(side=tk.RIGHT)
 
-        self._handler = WebPageHandler()
         self._job_queue = queue.Queue()
         self._downloaders = []
         self._running = False
@@ -241,7 +282,11 @@ class MainWnd(tk.Frame):
         if not job.is_successful():
             messagebox.showerror(MainWnd.WND_TITLE, 'Failed to download web page')
             return
-        self.load_links(job.file_path())
+        parse_result = urlparse(job._url)
+        if parse_result.netloc not in self._handlers:
+            return
+        self._active_handler.set(parse_result.netloc)
+        self.load_links(job.file_path(), parse_result.netloc)
 
     def load_local_web_page(self):
         dst = self._tmp_dir.get().strip()
@@ -250,10 +295,13 @@ class MainWnd(tk.Frame):
         web_page = self.web_page()
         if not os.path.exists(web_page):
             return
-        self.load_links(web_page)
+        active_handler = self._active_handler.get()
+        if len(active_handler) == 0:
+            return
+        self.load_links(web_page, active_handler)
 
-    def load_links(self, file):
-        links = self._handler.feed_file(file)
+    def load_links(self, file, active_handler):
+        links = self._handlers[active_handler].feed_file(file)
         self._links.delete(*self._links.get_children())
         for i, url in enumerate(links, start=1):
             iid = 'I%04d' % i
@@ -285,7 +333,7 @@ class MainWnd(tk.Frame):
             msg = 'Are you sure to delete\n\n%s\n\n?' % selected[0]
         else:
             msg = 'Are you sure to delete %d jobs?' % num
-        if not messagebox.askokcancel(Main.WND_TITLE, msg):
+        if not messagebox.askokcancel(MainWnd.WND_TITLE, msg):
             return
         self._links.delete(*selected)
 
@@ -363,7 +411,8 @@ class MainWnd(tk.Frame):
             #
             # In short, be careful of below 'sn' in this app.
             sn, url, state = self._links.item(iid, 'values')
-            _, ext = url_split(url)
+            _, ext = url_image_name(url)
+            url = url_quote(url)
             dst = os.path.join(self._tmp_dir.get(), 'img_%04d.%s' % (int(sn), ext))
             job = ThreadDownloader(url, dst, self._timeout.get())
             job.iid = iid  # attach a temporary attribute
@@ -379,13 +428,16 @@ class MainWnd(tk.Frame):
     def notify_finish(self):
         self._running = False
         self._btn.config(text='Download')
-        messagebox.showinfo(MainWnd.WND_TITLE, 'All segments are downloaded.')
         if len(self._links.get_children()) == 0:
+            messagebox.showinfo(MainWnd.WND_TITLE, 'All segments are downloaded.')
             os.remove(self.web_page())
 
     def web_page(self):
         dst = self._tmp_dir.get().strip()
         return os.path.join(dst, MainWnd.WEB_PAGE)
+
+    def on_choose_handler(self, _):
+        pass
 
 
 def main():
