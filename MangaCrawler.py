@@ -11,17 +11,16 @@ from hashlib import md5
 import os
 from enum import Enum
 from html.parser import HTMLParser
-import re
+from PIL import Image
 
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
 
 
 def url_image_name(url):
-    match = re.search(r'/(?P<base>\w+)\.(?P<ext>(jpg|png))', url)
-    if match:
-        return match.group('base'), match.group('ext')
-    return None, None
+    parts = urlparse(url)
+    _, filename = os.path.split(parts.path)
+    return os.path.splitext(filename)
 
 
 def url_quote(url):
@@ -262,7 +261,7 @@ class MainWnd(tk.Frame):
         self._links.heading('sn', text='SN')
         self._links.heading('url', text='URL')  # '#0' column is icon and it's hidden here
         self._links.heading('state', text='State')    # we only need two columns: '#1' and '#2'
-        self._links.column('sn', width=30, stretch=False)
+        self._links.column('sn', width=40, stretch=False)
         self._links.column('state', width=50, stretch=False, anchor=tk.CENTER)
         #
         frame = tk.Frame(group)
@@ -345,6 +344,7 @@ class MainWnd(tk.Frame):
             return
         active_handler = self._active_handler.get()
         if len(active_handler) == 0:
+            messagebox.askquestion(MainWnd.WND_TITLE, 'Web content cannot be parsed without handler specified')
             return
         self._save_dir = dst.strip()
         self.load_links(web_page, active_handler)
@@ -461,8 +461,8 @@ class MainWnd(tk.Frame):
             sn, url, state = self._links.item(iid, 'values')
             _, ext = url_image_name(url)
             url = url_quote(url)
-            dst = os.path.join(self._save_dir, 'img_%04d.%s' % (int(sn), ext))
-            job = ThreadDownloader(url, dst, self._timeout.get(), self._retry.get())
+            dst = os.path.join(self._save_dir, 'img_%04d%s' % (int(sn), ext))
+            job = ThreadDownloader(url, dst, self._timeout.get(), self._retry.get(), self.on_image_downloaded)
             job.iid = iid  # attach a temporary attribute
             self._downloaders.append(job)
             job.start()
@@ -502,6 +502,19 @@ class MainWnd(tk.Frame):
 
     def on_choose_handler(self, _):
         pass
+
+    def on_image_downloaded(self, job):
+        assert isinstance(job, ThreadDownloader)
+        if not job.is_successful():
+            return
+        filepath, filename = os.path.split(job._dst)
+        basename, ext = os.path.splitext(filename)
+        if ext != '.webp':
+            return
+        with Image.open(job._dst) as img:
+            converted = os.path.join(filepath, '{}.jpg'.format(basename))
+            img.convert('RGB').save(converted)
+        os.remove(job._dst)
 
     def can_automate_next(self):
         if self._auto.get() is False:
