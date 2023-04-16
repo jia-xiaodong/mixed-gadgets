@@ -12,6 +12,7 @@ import os
 from enum import Enum
 from html.parser import HTMLParser
 from PIL import Image
+from io import BytesIO, StringIO
 
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -53,8 +54,8 @@ class WebPageHandler(HTMLParser):
 
     def feed_file(self, web_page_file):
         self._images[:] = []
-        with open(web_page_file, 'r') as file:
-            self.feed(file.read())
+        web_page_file.seek(0)
+        self.feed(web_page_file.read())
         self.close()
         return self._images
 
@@ -131,8 +132,9 @@ class ParallelParadiseOnlineHandler(WebPageHandler):
 
 class DownloadStatus(Enum):
     Unknown = 0
-    Successful = 1
-    Failed = 2
+    Failed = 1
+    Downloaded = 2
+    Successful = 3
 
 
 class ThreadDownloader(threading.Thread):
@@ -144,29 +146,33 @@ class ThreadDownloader(threading.Thread):
         self._retry = retry
         self._cb = callback
         self._status = DownloadStatus.Unknown
+        self._content = None
 
     def run(self):
         user_agent = {'User-Agent': 'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_8; en-us) AppleWebKit/534.50'}
         req = Request(self._url, headers=user_agent, unverifiable=True)
-        content = None
         for i in range(0, self._retry):
             try:
                 ifo = urlopen(req, timeout=self._timeout)
-                content = ifo.read()
+                self._content = ifo.read()
                 ifo.close()
                 break
             except Exception as e:
                 print('%s: %s' % (self._url, e))
         # 失败
-        if content is None:
+        if self._content is None:
             self._status = DownloadStatus.Failed
             if self._cb is not None:
                 self._cb(self)
             return
-        # 成功
-        if not self.file_exists(content):
+        # 成功下载，有一次回调
+        self._status = DownloadStatus.Downloaded
+        if self._cb is not None:
+            self._cb(self)
+        # 写完本地文件，有一次回调
+        if not self.file_exists(self._content):
             with open(self._dst, 'wb') as ofo:
-                ofo.write(content)
+                ofo.write(self._content)
         self._status = DownloadStatus.Successful
         if self._cb is not None:
             self._cb(self)
@@ -192,6 +198,12 @@ class ThreadDownloader(threading.Thread):
 
     def is_successful(self):
         return self._status == DownloadStatus.Successful
+
+    def is_downloaded(self):
+        return self._status == DownloadStatus.Downloaded
+
+    def is_failed(self):
+        return self._status == DownloadStatus.Failed
 
     def file_path(self):
         return self._dst
@@ -322,18 +334,25 @@ class MainWnd(tk.Frame):
             os.mkdir(dst)
         url = url_quote(url)
         self._save_dir = dst
-        job = ThreadDownloader(url, os.path.join(self._save_dir, MainWnd.WEB_PAGE), self._timeout.get(), self._retry.get(), self.on_web_page_downloaded)
+        job = ThreadDownloader(url=url, dst=os.path.join(self._save_dir, MainWnd.WEB_PAGE),
+                               timeout=self._timeout.get(), retry=self._retry.get(),
+                               callback=self.on_web_page_downloaded)
         job.start()
 
     def on_web_page_downloaded(self, job: ThreadDownloader):
-        if not job.is_successful():
+        if job.is_failed():
             messagebox.showerror(MainWnd.WND_TITLE, 'Failed to download web page:\n%s' % job._url)
             return
+        if job.is_successful():
+            return;
+        # 使用内存文件加快速度
         parse_result = urlparse(job._url)
         if parse_result.netloc not in self._handlers:
             return
         self._active_handler.set(parse_result.netloc)
-        self.load_links(job.file_path(), parse_result.netloc)
+        content = job._content.decode(encoding='utf8')
+        with StringIO(content) as file:
+            self.load_links(file, parse_result.netloc)
 
     def load_local_web_page(self):
         dst = self._tmp_dir.get().strip()
@@ -347,10 +366,11 @@ class MainWnd(tk.Frame):
             messagebox.askquestion(MainWnd.WND_TITLE, 'Web content cannot be parsed without handler specified')
             return
         self._save_dir = dst.strip()
-        self.load_links(web_page, active_handler)
+        with open(web_page) as file:
+            self.load_links(file, active_handler)
 
-    def load_links(self, file, active_handler):
-        links = self._handlers[active_handler].feed_file(file)
+    def load_links(self, file_obj, active_handler):
+        links = self._handlers[active_handler].feed_file(file_obj)
         self._links.delete(*self._links.get_children())
         for i, url in enumerate(links, start=1):
             iid = 'I%04d' % i
@@ -492,7 +512,9 @@ class MainWnd(tk.Frame):
         self._wildcard_from.set(current)
         url = url_quote(url)
         self._save_dir = dst
-        job = ThreadDownloader(url, os.path.join(dst, MainWnd.WEB_PAGE), self._timeout.get(), self._retry.get(), self.on_web_page_downloaded)
+        job = ThreadDownloader(url=url, dst=os.path.join(dst, MainWnd.WEB_PAGE),
+                               timeout=self._timeout.get(), retry=self._retry.get(),
+                               callback=self.on_web_page_downloaded)
         job.start()
 
     def notify_finish(self):
@@ -505,16 +527,17 @@ class MainWnd(tk.Frame):
 
     def on_image_downloaded(self, job):
         assert isinstance(job, ThreadDownloader)
-        if not job.is_successful():
+        if not job.is_downloaded():
             return
         filepath, filename = os.path.split(job._dst)
         basename, ext = os.path.splitext(filename)
         if ext != '.webp':
             return
-        with Image.open(job._dst) as img:
-            converted = os.path.join(filepath, '{}.jpg'.format(basename))
-            img.convert('RGB').save(converted)
-        os.remove(job._dst)
+        # 我的漫画软件不支持webp格式
+        job._dst = os.path.join(filepath, '{}.jpg'.format(basename))
+        with Image.open(BytesIO(job._content)) as img:
+            jpg_data = img.convert('RGB').getdata()
+            job._content = list(jpg_data)
 
     def can_automate_next(self):
         if self._auto.get() is False:
