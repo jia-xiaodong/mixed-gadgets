@@ -536,8 +536,9 @@ class MainWnd(tk.Frame):
         # 我的漫画软件不支持webp格式
         job._dst = os.path.join(filepath, '{}.jpg'.format(basename))
         with Image.open(BytesIO(job._content)) as img:
-            jpg_data = img.convert('RGB').getdata()
-            job._content = list(jpg_data)
+            jpg_data = BytesIO()
+            img.convert('RGB').save(jpg_data, format='JPEG')
+            job._content = jpg_data.getvalue()
 
     def can_automate_next(self):
         if self._auto.get() is False:
