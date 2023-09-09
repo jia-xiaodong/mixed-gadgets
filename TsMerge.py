@@ -1,4 +1,4 @@
-#!usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding:utf-8 -*-
 
 import tkinter as tk
@@ -8,6 +8,7 @@ from tkinter import messagebox
 import os
 from urllib.request import urlopen
 from urllib.request import Request
+from urllib.parse import urlparse, quote, ParseResult
 import queue
 import threading
 from hashlib import md5
@@ -49,6 +50,17 @@ def url_basename(url):
 def new_request(url):
     user_agent = {'User-Agent': 'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_6_8; en-us) AppleWebKit/534.50'}
     return Request(url, headers=user_agent, unverifiable=True)
+
+def url_escape(url):
+    obj = urlparse(url)
+    assert isinstance(obj, ParseResult)
+    obj2 = ParseResult(scheme=obj.scheme,
+                       netloc=quote(obj.netloc),
+                       path=quote(obj.path),
+                       params=quote(obj.params),
+                       query=quote(obj.query),
+                       fragment=quote(obj.fragment))
+    return obj2.geturl()
 
 
 class RepeatTimer:
@@ -380,7 +392,7 @@ class Main(tk.Frame):
                 # In short, be careful of below 'sn' in this app.
                 sn, url, state = self._segments.item(iid, 'values')
                 dst = os.path.join(cache, 'out%04d.ts' % int(sn))
-                job = ThreadDownloader(url, dst, timeout)
+                job = ThreadDownloader(url_escape(url), dst, timeout)
                 job.iid = iid  # attach a temporary attribute
                 jobs.append(job)
                 job.start()
