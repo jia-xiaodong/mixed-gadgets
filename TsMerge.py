@@ -267,6 +267,7 @@ class Main(tk.Frame):
         self.init_stats_tip()
         #
         self._cache_list = set()
+        self._url_stats = {}
 
     def onclick_browse_tmp(self):
         adir = filedialog.askdirectory()
@@ -544,6 +545,7 @@ class Main(tk.Frame):
         This part of code is tricky, because websites use disturbed URL in M3U8 file.
         """
         urls = []
+        self._url_stats.clear()
         domain = url_domain(index_url)
         direct = url_directory(index_url)
         for line in lines:
@@ -553,16 +555,23 @@ class Main(tk.Frame):
             if len(line) == 0:
                 continue
             if line.find('://') > 0:  # full URL
-                pass
+                self.sum_up_urls(url_directory(line))
             elif line.find('/', 1) == -1:  # basename
                 line = url_join(direct, line)
+                self.sum_up_urls(direct)
             else:
                 line = url_join(domain, line)
+                self.sum_up_urls(url_directory(line))
             urls.append(line)
         self._segments.delete(*self._segments.get_children())
         for i, url in enumerate(urls, start=1):
             iid = 'I%04d' % i
             self._segments.insert('', tk.END, iid=iid, values=(i, url, ''))
+        if len(self._url_stats) > 1:
+            all_patterns = ['{0}: {1}, {2}'.format(i+1, url, count) for i, (url, count) in enumerate(self._url_stats.items())]
+            all_patterns = '\n'.join(all_patterns)
+            print('[warning] More than 1 URL patterns found:\n', all_patterns)
+            messagebox.showwarning(Main.WND_TITLE, 'More than 1 URL patterns found:\n' + all_patterns)
 
     def onclick_clear_url(self, evt):
         self._url.set('')
@@ -618,14 +627,24 @@ class Main(tk.Frame):
             global_cipher = AES.new(content, AES.MODE_CBC, content)
             self._cache_list.add(key_file)
         except Exception as e:
-            print(e)
+            messagebox.showerror(Main.WND_TITLE, str(e))
+
+    def sum_up_urls(self, url_path):
+        if url_path not in self._url_stats.keys():
+            self._url_stats[url_path] = 1
+        else:
+            count = self._url_stats[url_path]
+            self._url_stats[url_path] = count + 1
 
 
 def main():
-    root = tk.Tk()
-    root.title(Main.WND_TITLE)
-    Main(root).pack(fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
-    root.mainloop()
+    try:
+        root = tk.Tk()
+        root.title(Main.WND_TITLE)
+        Main(root).pack(fill=tk.BOTH, expand=tk.YES, padx=5, pady=5)
+        root.mainloop()
+    except Exception as e:
+        print('error:', str(e))
 
 if __name__ == '__main__':
     main()
