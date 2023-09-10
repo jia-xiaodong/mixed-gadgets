@@ -265,6 +265,8 @@ class Main(tk.Frame):
         tk.Button(frame, text='Merge', command=self.onclick_merge).pack(side=tk.LEFT)
         #
         self.init_stats_tip()
+        #
+        self._cache_list = set()
 
     def onclick_browse_tmp(self):
         adir = filedialog.askdirectory()
@@ -296,6 +298,7 @@ class Main(tk.Frame):
             lines = content.split('\n')
             self.check_encryption(lines, index_url, cache_dir)
             self.fill_in_listbox(index_url, lines)
+            self._cache_list.add(dst)
         except Exception as e:
             print(e)
 
@@ -316,6 +319,7 @@ class Main(tk.Frame):
             lines = ifo.readlines()
             self.check_encryption(lines, index_url, cache_dir)
             self.fill_in_listbox(index_url, lines)
+            self._cache_list.add(index_file)
 
     def onclick_download_segments(self):
         urls = self._segments.get_children()
@@ -568,6 +572,7 @@ class Main(tk.Frame):
         if tmp == '':
             return
         videos = [i for i in os.listdir(tmp) if i.endswith('.ts')]
+        videos.extend(self._cache_list)
         num = len(videos)
         if num == 0:
             return
@@ -579,7 +584,7 @@ class Main(tk.Frame):
                 os.remove(i)
             except Exception as e:
                 print(e)
-        os.remove(Main.INDEX_FILE)
+        messagebox.showinfo(Main.WND_TITLE, 'All files are gone')
 
     def check_encryption(self, lines, index_url, cache_dir):
         global global_cipher
@@ -611,6 +616,7 @@ class Main(tk.Frame):
                 ofo.write(content)
                 ofo.close()
             global_cipher = AES.new(content, AES.MODE_CBC, content)
+            self._cache_list.add(key_file)
         except Exception as e:
             print(e)
 
