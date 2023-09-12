@@ -593,6 +593,7 @@ class Main(tk.Frame):
                 os.remove(i)
             except Exception as e:
                 print(e)
+        self._cache_list.clear()
         messagebox.showinfo(Main.WND_TITLE, 'All files are gone')
 
     def check_encryption(self, lines, index_url, cache_dir):
