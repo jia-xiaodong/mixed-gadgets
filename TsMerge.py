@@ -15,6 +15,7 @@ from hashlib import md5
 import time
 import re
 from Crypto.Cipher import AES
+from sys import version_info
 
 
 import ssl
@@ -180,6 +181,8 @@ class ThreadDownloader(threading.Thread):
             digest2 = md5(content).digest()
             return digest1 == digest2
 
+    if version_info >= (3, 9):
+        def isAlive(self) -> bool: return self.is_alive()
 
 class Main(tk.Frame):
     WND_TITLE = 'TS Merger'
@@ -420,7 +423,13 @@ class Main(tk.Frame):
             else:
                 self._progress.set(self._progressbar['maximum'])
                 self._btn.config(text='Download')
-                messagebox.showinfo(Main.WND_TITLE, 'All segments are downloaded.')
+                #
+                items = self._segments.get_children()
+                if len(items) == 0:
+                    if messagebox.askokcancel(Main.WND_TITLE, 'Do you want to merge them all?'):
+                        self.onclick_merge()
+                else:
+                    messagebox.showinfo(Main.WND_TITLE, 'All segments are downloaded.')
 
     def onclick_save_as(self):
         filename = filedialog.asksaveasfilename(defaultextension='.mp4')
@@ -450,7 +459,8 @@ class Main(tk.Frame):
                 ofo.write(ifo.read())
                 ifo.close()
             ofo.close()
-            messagebox.showinfo(Main.WND_TITLE, 'Merge is done.')
+            if messagebox.askokcancel(Main.WND_TITLE, 'Merge is done.\nDo you want to clear cache?'):
+                self.onclick_del_segments()
         except Exception as e:
             messagebox.showerror(Main.WND_TITLE, str(e))
 
@@ -512,6 +522,8 @@ class Main(tk.Frame):
         self._tip_wnd.wm_geometry("+%d+%d" % (x+offset, y+offset))
 
     def hide_tip(self, evt=None):
+        if self._tip_wnd is None:
+            return
         self._tip_wnd.destroy()
         self._tip_wnd = None
 
