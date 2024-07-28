@@ -612,12 +612,16 @@ class Main(tk.Frame):
         global global_cipher
         global_cipher = None
         link = None
-        pattern = r'#EXT-X-KEY:METHOD=AES-128,URI="(?P<link>.+)"'
+        IV = None
+        pattern = r'#EXT-X-KEY:METHOD=AES-128,URI="(?P<link>.+)"(,IV=0x(?P<iv>[A-Fa-f\d]+))?'
         regex = re.compile(pattern)
         for line in lines:
             match = regex.search(line)
             if match is not None:
                 link = match.group('link')
+                if len(match.groups()) == 3:
+                    IV = match.group('iv')
+                    IV = bytes.fromhex(IV)
                 break
         if link is None:
             return
@@ -637,7 +641,9 @@ class Main(tk.Frame):
                 ofo = open(key_file, 'wb')
                 ofo.write(content)
                 ofo.close()
-            global_cipher = AES.new(content, AES.MODE_CBC, content)
+            if IV is None or len(IV) != 16:
+                IV = content
+            global_cipher = AES.new(content, AES.MODE_CBC, IV)
             self._cache_list.add(key_file)
         except Exception as e:
             messagebox.showerror(Main.WND_TITLE, str(e))
@@ -659,5 +665,30 @@ def main():
     except Exception as e:
         print('error:', str(e))
 
+
+def decode_files(root_dir: str, key_path: str, output: str):
+    cipher = None
+    iv = '0' * 16
+    iv = iv.encode('utf8')
+    with open(key_path, 'rb') as key:
+        content = key.read()
+        cipher = AES.new(content, AES.MODE_CBC, iv)
+
+    dst = open(output, 'wb')
+
+    all_ts = [i for i in os.listdir(root_dir) if i.endswith('.ts')]
+    all_ts = sorted(all_ts)
+    for item in all_ts:
+        path = os.path.join(root_dir, item)
+        with open(path, 'rb') as src:
+            content = src.read()
+            byte_array = cipher.decrypt(content)
+            dst.write(byte_array)
+    dst.close()
+
+
 if __name__ == '__main__':
     main()
+    #decode_files(root_dir='/Users/xiaodong/Downloads/video',
+    #             key_path='/Users/xiaodong/Downloads/video/enc.key',
+    #             output='/Users/xiaodong/Downloads/video/test.ts')
