@@ -158,7 +158,7 @@ class PhotoCrop(tk.Frame):
         new_h = new_w * old_h // old_w
         if new_h > canvas_h:
             new_h = canvas_h
-            new_w = new_h * old_w / old_h
+            new_w = new_h * old_w // old_h
         return new_w, new_h
 
     def draw_rect(self):
