@@ -71,8 +71,9 @@ class MainFrame(tk.Frame):
         self.image_id_1 = self.canvas_1.create_image(0, 0, anchor=tk.NW, image=self.image_dst_1)
 
         self.canvas_2.delete(self.image_id_2)
-        self.image_dst_2 = ImageTk.PhotoImage(self.image_src_2.resize(new_size))
-        self.image_id_2 = self.canvas_2.create_image(0, 0, anchor=tk.NW, image=self.image_dst_2)
+        if self.image_src_2 is not None:
+            self.image_dst_2 = ImageTk.PhotoImage(self.image_src_2.resize(new_size))
+            self.image_id_2 = self.canvas_2.create_image(0, 0, anchor=tk.NW, image=self.image_dst_2)
 
     def calc_fit_size(self, old_size, canvas_size):
         old_w, old_h = old_size
@@ -82,7 +83,13 @@ class MainFrame(tk.Frame):
         if new_h > canvas_h:
             new_h = canvas_h
             new_w = new_h * old_w // old_h
-        return new_w, new_h
+        return max(1, new_w), max(1, new_h)
+
+    @staticmethod
+    def format_pixel(pixel):
+        if isinstance(pixel, int):
+            return pixel, f'{pixel:02X}'
+        return pixel, ''.join(f'{num:02X}' for num in pixel)
 
     def on_mouse_move(self, event):
         if not self.image_src_1:
@@ -97,8 +104,7 @@ class MainFrame(tk.Frame):
             x = self.image_src_1.size[0] - 1
         if y >= self.image_src_1.size[1]:
             y = self.image_src_1.size[1] - 1
-        pixel = self.image_src_1.getpixel((x, y))
-        hex_str = ''.join(f'{num:X}' for num in pixel)
+        pixel, hex_str = self.format_pixel(self.image_src_1.getpixel((x, y)))
         self.image_info.set(f'mode={self.image_src_1.mode}, ({x}, {y})={pixel} #{hex_str}')
 
 
