@@ -613,13 +613,13 @@ class Main(tk.Frame):
         global_cipher = None
         link = None
         IV = None
-        pattern = r'#EXT-X-KEY:METHOD=AES-128,URI="(?P<link>.+)"(,IV=0x(?P<iv>[A-Fa-f\d]+))?'
+        pattern = r'#EXT-X-KEY:METHOD=AES-128,URI="(?P<link>.+)"(,IV=0x(?P<iv>[\d\w\\/]+))?'
         regex = re.compile(pattern)
         for line in lines:
             match = regex.search(line)
             if match is not None:
                 link = match.group('link')
-                if len(match.groups()) == 3:
+                if 'iv' in match.groups():
                     IV = match.group('iv')
                     IV = bytes.fromhex(IV)
                 break
